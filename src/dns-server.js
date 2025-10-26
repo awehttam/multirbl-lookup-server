@@ -11,9 +11,11 @@ class RBLDnsServer {
     this.port = config.port || 8053;
     this.host = config.host || '0.0.0.0';
     this.upstreamDns = config.upstreamDns || '8.8.8.8';
+    this.multiRblDomain = config.multiRblDomain || 'multi-rbl.example.com';
     this.server = null;
     this.db = getDatabase();
     this.rblServers = [];
+    this.rblServersList = []; // Array of all RBL servers
   }
 
   /**
@@ -22,12 +24,14 @@ class RBLDnsServer {
   async init() {
     // Load RBL servers from config
     const servers = await getRblServers();
+    this.rblServersList = servers;
     this.rblServers = servers.reduce((map, server) => {
       map[server.host] = server;
       return map;
     }, {});
 
     console.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
+    console.log(`Multi-RBL lookup domain: ${this.multiRblDomain}`);
   }
 
   /**
@@ -58,6 +62,131 @@ class RBLDnsServer {
   }
 
   /**
+   * Parse IP from multi-RBL domain query
+   * e.g., "127.0.0.2.multi-rbl.example.com" -> "127.0.0.2"
+   */
+  parseMultiRblIp(query) {
+    // Remove the multi-RBL domain from the query
+    if (!query.endsWith(`.${this.multiRblDomain}`)) {
+      return null;
+    }
+
+    const prefix = query.replace(`.${this.multiRblDomain}`, '');
+    const parts = prefix.split('.');
+
+    // Validate that we have 4 octets
+    if (parts.length !== 4) {
+      return null;
+    }
+
+    // Validate each octet
+    for (const part of parts) {
+      const num = parseInt(part, 10);
+      if (isNaN(num) || num < 0 || num > 255) {
+        return null;
+      }
+    }
+
+    return parts.join('.');
+  }
+
+  /**
+   * Perform multi-RBL lookup for an IP with 250ms timeout
+   */
+  async performMultiRblLookup(ip, response, queryName) {
+    console.log(`Multi-RBL lookup for ${ip} (250ms timeout)`);
+    const startTime = Date.now();
+
+    // Create a timeout promise that resolves after 250ms
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => resolve('timeout'), 250);
+    });
+
+    // Start all RBL lookups concurrently
+    const lookupPromises = this.rblServersList.map(server =>
+      lookupSingleRblWithCache(ip, server, this.db)
+    );
+
+    // Race between all lookups completing and the 250ms timeout
+    const raceResult = await Promise.race([
+      Promise.allSettled(lookupPromises),
+      timeoutPromise
+    ]);
+
+    const elapsed = Date.now() - startTime;
+    let results = [];
+    let completedCount = 0;
+    let timedOut = false;
+
+    if (raceResult === 'timeout') {
+      // Timeout occurred - collect results that have completed so far
+      timedOut = true;
+      // Wait a tiny bit more for any results that finished just as timeout hit
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Use allSettled to get whatever completed
+      const settledResults = await Promise.allSettled(
+        lookupPromises.map(p => Promise.race([p, Promise.resolve(null)]))
+      );
+
+      results = settledResults
+        .filter(r => r.status === 'fulfilled' && r.value !== null)
+        .map(r => r.value);
+
+      completedCount = results.length;
+    } else {
+      // All lookups completed within timeout
+      results = raceResult
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value);
+      completedCount = results.length;
+    }
+
+    // Count listed servers
+    const listedCount = results.filter(r => r.listed).length;
+    const totalCount = this.rblServersList.length;
+
+    response.header.qr = 1; // This is a response
+    response.header.aa = 1; // Authoritative answer
+    response.header.ra = 0; // Recursion not available
+
+    if (listedCount > 0) {
+      // IP is listed on at least one RBL - respond with 127.0.0.2
+      response.answer.push(dns.A({
+        name: queryName,
+        address: '127.0.0.2',
+        ttl: 300
+      }));
+
+      // Add TXT record with summary
+      const summary = `Listed on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} checked in ${elapsed}ms)`;
+      response.answer.push(dns.TXT({
+        name: queryName,
+        data: summary,
+        ttl: 300
+      }));
+
+      // Add TXT records for each listing
+      results.forEach(result => {
+        if (result.listed) {
+          const txtData = `${result.name}: LISTED`;
+          response.answer.push(dns.TXT({
+            name: queryName,
+            data: txtData,
+            ttl: 300
+          }));
+        }
+      });
+
+      console.log(`  -> LISTED on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} completed in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
+    } else {
+      // Not listed on any RBL checked - respond with NXDOMAIN
+      response.header.rcode = dns.consts.NAME_TO_RCODE.NOTFOUND;
+      console.log(`  -> NOT LISTED (${completedCount}/${totalCount} checked in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
+    }
+  }
+
+  /**
    * Handle DNS query
    */
   async handleQuery(request, response) {
@@ -67,7 +196,19 @@ class RBLDnsServer {
 
     console.log(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)})`);
 
-    // Only handle A record queries
+    // Check if this is a multi-RBL lookup query
+    if (queryName.endsWith(`.${this.multiRblDomain}`)) {
+      const ip = this.parseMultiRblIp(queryName);
+      if (ip) {
+        await this.performMultiRblLookup(ip, response, queryName);
+        console.log(`  -> Sending response...`);
+        response.send();
+        console.log(`  -> Response sent`);
+        return;
+      }
+    }
+
+    // Only handle A record queries for regular RBL lookups
     if (queryType !== dns.consts.NAME_TO_QTYPE.A) {
       console.log(`Skipping non-A record query type: ${dns.consts.qtypeToName(queryType)}`);
       return this.forwardQuery(request, response);
@@ -202,10 +343,13 @@ class RBLDnsServer {
     console.log(`\nRBL DNS Server started`);
     console.log(`  Listen: ${this.host}:${this.port}`);
     console.log(`  Upstream DNS: ${this.upstreamDns}`);
+    console.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
     console.log(`  Cache: SQLite database`);
-    console.log(`\nTo test:`);
+    console.log(`\nTo test single RBL:`);
     console.log(`  dig @localhost -p ${this.port} 2.0.0.127.zen.spamhaus.org`);
-    console.log(`  nslookup 2.0.0.127.zen.spamhaus.org localhost -port=${this.port}\n`);
+    console.log(`\nTo test multi-RBL lookup:`);
+    console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain}`);
+    console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain} TXT\n`);
 
     // Clean expired cache entries every 5 minutes
     setInterval(() => {

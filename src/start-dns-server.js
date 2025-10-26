@@ -11,7 +11,8 @@ function parseArgs() {
   const config = {
     port: 8053,
     host: '0.0.0.0',
-    upstreamDns: '8.8.8.8'
+    upstreamDns: '8.8.8.8',
+    multiRblDomain: 'multi-rbl.example.com'
   };
 
   for (const arg of args) {
@@ -24,6 +25,8 @@ function parseArgs() {
       config.host = arg.split('=')[1];
     } else if (arg.startsWith('--upstream=')) {
       config.upstreamDns = arg.split('=')[1];
+    } else if (arg.startsWith('--multi-rbl-domain=')) {
+      config.multiRblDomain = arg.split('=')[1];
     } else if (arg === '--stats') {
       showStats();
       process.exit(0);
@@ -46,22 +49,29 @@ RBL DNS Server with SQLite Caching
 Usage: node src/start-dns-server.js [options]
 
 Options:
-  --port=<port>         DNS server port (default: 8053)
-  --host=<host>         DNS server bind address (default: 0.0.0.0)
-  --upstream=<dns>      Upstream DNS server for non-RBL queries (default: 8.8.8.8)
-  --stats               Show cache statistics and exit
-  --clear-cache         Clear all cached entries and exit
-  --help, -h            Show this help message
+  --port=<port>              DNS server port (default: 8053)
+  --host=<host>              DNS server bind address (default: 0.0.0.0)
+  --upstream=<dns>           Upstream DNS server for non-RBL queries (default: 8.8.8.8)
+  --multi-rbl-domain=<dom>   Domain for multi-RBL lookups (default: multi-rbl.example.com)
+  --stats                    Show cache statistics and exit
+  --clear-cache              Clear all cached entries and exit
+  --help, -h                 Show this help message
 
 Examples:
   node src/start-dns-server.js
   node src/start-dns-server.js --port=53 --host=127.0.0.1
   node src/start-dns-server.js --upstream=1.1.1.1
+  node src/start-dns-server.js --multi-rbl-domain=check.example.org
   node src/start-dns-server.js --stats
 
-Testing:
+Testing Single RBL:
   dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org
   nslookup 2.0.0.127.zen.spamhaus.org localhost -port=8053
+
+Testing Multi-RBL (checks IP against all RBLs):
+  dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com
+  dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT
+  nslookup 127.0.0.2.multi-rbl.example.com localhost -port=8053
 
 Note: Use port 53 for standard DNS (requires admin/root privileges)
 `);
