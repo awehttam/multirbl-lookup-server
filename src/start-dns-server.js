@@ -9,7 +9,7 @@ import { getDatabase } from './cache-db.js';
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
-    port: 5353,
+    port: 8053,
     host: '0.0.0.0',
     upstreamDns: '8.8.8.8'
   };
@@ -46,7 +46,7 @@ RBL DNS Server with SQLite Caching
 Usage: node src/start-dns-server.js [options]
 
 Options:
-  --port=<port>         DNS server port (default: 5353)
+  --port=<port>         DNS server port (default: 8053)
   --host=<host>         DNS server bind address (default: 0.0.0.0)
   --upstream=<dns>      Upstream DNS server for non-RBL queries (default: 8.8.8.8)
   --stats               Show cache statistics and exit
@@ -60,8 +60,8 @@ Examples:
   node src/start-dns-server.js --stats
 
 Testing:
-  dig @localhost -p 5353 2.0.0.127.zen.spamhaus.org
-  nslookup 2.0.0.127.zen.spamhaus.org localhost -port=5353
+  dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org
+  nslookup 2.0.0.127.zen.spamhaus.org localhost -port=8053
 
 Note: Use port 53 for standard DNS (requires admin/root privileges)
 `);

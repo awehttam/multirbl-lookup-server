@@ -8,7 +8,7 @@ import { getRblServers } from './rbl-lookup.js';
  */
 class RBLDnsServer {
   constructor(config = {}) {
-    this.port = config.port || 5353;
+    this.port = config.port || 8053;
     this.host = config.host || '0.0.0.0';
     this.upstreamDns = config.upstreamDns || '8.8.8.8';
     this.server = null;
@@ -123,7 +123,9 @@ class RBLDnsServer {
         response.header.rcode = dns.consts.NAME_TO_RCODE.NOTFOUND;
       }
 
+      console.log(`  -> Sending response...`);
       response.send();
+      console.log(`  -> Response sent`);
     } catch (error) {
       console.error(`Error handling query: ${error.message}`);
       response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
@@ -171,8 +173,10 @@ class RBLDnsServer {
     this.server = dns.createServer();
 
     this.server.on('request', (request, response) => {
+      console.log(`\n==> Received request from ${request.address.address}:${request.address.port}`);
       this.handleQuery(request, response).catch(err => {
         console.error(`Error handling request: ${err.message}`);
+        console.error(err.stack);
         response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
         response.send();
       });
@@ -180,8 +184,19 @@ class RBLDnsServer {
 
     this.server.on('error', (err) => {
       console.error(`DNS Server error: ${err.message}`);
+      console.error(err.stack);
     });
 
+    this.server.on('listening', () => {
+      console.log(`DNS server is now listening`);
+    });
+
+    this.server.on('socketError', (err, socket) => {
+      console.error(`Socket error: ${err.message}`);
+      console.error(err.stack);
+    });
+
+    console.log(`Binding to ${this.host}:${this.port}...`);
     this.server.serve(this.port, this.host);
 
     console.log(`\nRBL DNS Server started`);
