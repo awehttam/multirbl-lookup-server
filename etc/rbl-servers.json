@@ -1,0 +1,202 @@
+[
+  {
+    "name": "Spamhaus ZEN",
+    "host": "zen.spamhaus.org",
+    "description": "Combined list including SBL, XBL, and PBL"
+  },
+  {
+    "name": "Spamhaus SBL",
+    "host": "sbl.spamhaus.org",
+    "description": "Spamhaus Block List"
+  },
+  {
+    "name": "Spamhaus XBL",
+    "host": "xbl.spamhaus.org",
+    "description": "Exploits Block List"
+  },
+  {
+    "name": "Spamhaus PBL",
+    "host": "pbl.spamhaus.org",
+    "description": "Policy Block List"
+  },
+  {
+    "name": "SpamCop",
+    "host": "bl.spamcop.net",
+    "description": "SpamCop Blocking List"
+  },
+  {
+    "name": "SORBS DNSBL",
+    "host": "dnsbl.sorbs.net",
+    "description": "SORBS aggregated list"
+  },
+  {
+    "name": "SORBS SPAM",
+    "host": "spam.dnsbl.sorbs.net",
+    "description": "SORBS spam sources"
+  },
+  {
+    "name": "SORBS WEB",
+    "host": "web.dnsbl.sorbs.net",
+    "description": "SORBS web server vulnerabilities"
+  },
+  {
+    "name": "Barracuda",
+    "host": "b.barracudacentral.org",
+    "description": "Barracuda Reputation Block List"
+  },
+  {
+    "name": "UCEPROTECT Level 1",
+    "host": "dnsbl-1.uceprotect.net",
+    "description": "UCEPROTECT Network Level 1"
+  },
+  {
+    "name": "UCEPROTECT Level 2",
+    "host": "dnsbl-2.uceprotect.net",
+    "description": "UCEPROTECT Network Level 2"
+  },
+  {
+    "name": "UCEPROTECT Level 3",
+    "host": "dnsbl-3.uceprotect.net",
+    "description": "UCEPROTECT Network Level 3"
+  },
+  {
+    "name": "PSBL",
+    "host": "psbl.surriel.com",
+    "description": "Passive Spam Block List"
+  },
+  {
+    "name": "Mailspike BL",
+    "host": "bl.mailspike.net",
+    "description": "Mailspike Blacklist"
+  },
+  {
+    "name": "DNSWL (Whitelist)",
+    "host": "list.dnswl.org",
+    "description": "DNS Whitelist - checks for trusted IPs"
+  },
+  {
+    "name": "SORBS SMTP",
+    "host": "smtp.dnsbl.sorbs.net",
+    "description": "SORBS open SMTP relays"
+  },
+  {
+    "name": "SORBS SOCKS",
+    "host": "socks.dnsbl.sorbs.net",
+    "description": "SORBS open SOCKS proxies"
+  },
+  {
+    "name": "SORBS MISC",
+    "host": "misc.dnsbl.sorbs.net",
+    "description": "SORBS miscellaneous threats"
+  },
+  {
+    "name": "SORBS HTTP",
+    "host": "http.dnsbl.sorbs.net",
+    "description": "SORBS open HTTP proxies"
+  },
+  {
+    "name": "SORBS DUL",
+    "host": "dul.dnsbl.sorbs.net",
+    "description": "SORBS Dynamic User List"
+  },
+  {
+    "name": "CBL",
+    "host": "cbl.abuseat.org",
+    "description": "Composite Blocking List"
+  },
+  {
+    "name": "WPBL",
+    "host": "db.wpbl.info",
+    "description": "Weighted Private Block List"
+  },
+  {
+    "name": "Mailspike Z",
+    "host": "z.mailspike.net",
+    "description": "Mailspike zero-hour list"
+  },
+  {
+    "name": "Invaluement",
+    "host": "dnsbl.invaluement.com",
+    "description": "Invaluement DNSBL"
+  },
+  {
+    "name": "SORBS Zombie",
+    "host": "zombie.dnsbl.sorbs.net",
+    "description": "SORBS zombie networks"
+  },
+  {
+    "name": "Spamhaus DBL",
+    "host": "dbl.spamhaus.org",
+    "description": "Domain Block List (for domain lookups)"
+  },
+  {
+    "name": "SURBL Multi",
+    "host": "multi.surbl.org",
+    "description": "SURBL combined list"
+  },
+  {
+    "name": "URIBL Multi",
+    "host": "multi.uribl.com",
+    "description": "URIBL combined list"
+  },
+  {
+    "name": "Truncate",
+    "host": "truncate.gbudb.net",
+    "description": "GBUdb Truncate list"
+  },
+  {
+    "name": "DRONEBL",
+    "host": "dnsbl.dronebl.org",
+    "description": "DroneBL - IRC spam drones"
+  },
+  {
+    "name": "EFnet RBL",
+    "host": "rbl.efnetrbl.org",
+    "description": "EFnet IRC network blocklist"
+  },
+  {
+    "name": "NiX Spam",
+    "host": "ix.dnsbl.manitu.net",
+    "description": "NiX Spam DNSBL"
+  },
+  {
+    "name": "RATS Dyna",
+    "host": "dyna.spamrats.com",
+    "description": "Spam Rats Dynamic IP list"
+  },
+  {
+    "name": "RATS NoPtr",
+    "host": "noptr.spamrats.com",
+    "description": "Spam Rats No PTR list"
+  },
+  {
+    "name": "RATS Spam",
+    "host": "spam.spamrats.com",
+    "description": "Spam Rats spam sources"
+  },
+  {
+    "name": "Spam Eating Monkey",
+    "host": "bl.spameatingmonkey.net",
+    "description": "SEM fresh list"
+  },
+  {
+    "name": "SEM Back Scatter",
+    "host": "backscatter.spameatingmonkey.net",
+    "description": "SEM backscatter list"
+  },
+  {
+    "name": "Abusix",
+    "host": "spam.abuse.ch",
+    "description": "Abusix spam list"
+  },
+  {
+    "name": "S5H",
+    "host": "all.s5h.net",
+    "description": "S5H combined list"
+  },
+  {
+    "name": "Blocklist.de",
+    "host": "bl.blocklist.de",
+    "description": "Blocklist.de - attacks and abuse"
+  }
+]

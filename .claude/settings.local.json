@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if not exist \"src\" mkdir src)",
+      "Bash(if not exist \"public_html\" mkdir public_html)",
+      "Bash(if not exist \"etc\" mkdir etc)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

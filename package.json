@@ -1,0 +1,30 @@
+{
+  "name": "multirbl-lookup",
+  "version": "1.0.0",
+  "description": "Real-time RBL lookup tool with web interface",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "dns-server": "node src/start-dns-server.js",
+    "dns-server:dev": "node --watch src/start-dns-server.js",
+    "dns-stats": "node src/start-dns-server.js --stats",
+    "dns-clear-cache": "node src/start-dns-server.js --clear-cache",
+    "test-cache": "node test-cache.js"
+  },
+  "keywords": [
+    "rbl",
+    "blacklist",
+    "dns",
+    "spam"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "dns": "^0.2.2",
+    "express": "^4.18.2",
+    "native-dns": "^0.7.0"
+  }
+}
