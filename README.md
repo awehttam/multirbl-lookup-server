@@ -5,6 +5,7 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 ## Features
 
 - **DNS Server**: RFC-compliant DNS server with intelligent SQLite caching
+- **Multi-RBL Lookup**: Query all RBLs at once via DNS with 250ms timeout
 - **Web Interface**: Modern, responsive web UI with real-time updates
 - **CLI Tool**: PHP command-line tool with formatted table output
 - **Smart Caching**: TTL-based caching in SQLite database
@@ -59,7 +60,7 @@ The server will start on http://localhost:3000
 
 ## Usage
 
-### DNS Server (NEW)
+### DNS Server
 
 Start the DNS server with intelligent caching:
 
@@ -72,23 +73,58 @@ npm run dns-server
 node src/start-dns-server.js [options]
 
 Options:
-  --port=<port>         DNS server port (default: 5353)
-  --host=<host>         Bind address (default: 0.0.0.0)
-  --upstream=<dns>      Upstream DNS for non-RBL queries (default: 8.8.8.8)
-  --stats               Show cache statistics
-  --clear-cache         Clear all cached entries
+  --port=<port>              DNS server port (default: 8053)
+  --host=<host>              Bind address (default: 0.0.0.0)
+  --upstream=<dns>           Upstream DNS for non-RBL queries (default: 8.8.8.8)
+  --multi-rbl-domain=<dom>   Domain for multi-RBL lookups (default: multi-rbl.example.com)
+  --stats                    Show cache statistics
+  --clear-cache              Clear all cached entries
 ```
 
-**Testing the DNS Server:**
+**Testing Single RBL Lookups:**
 
 Using `dig`:
 ```bash
-dig @localhost -p 5353 2.0.0.127.zen.spamhaus.org
+dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org
 ```
 
 Using `nslookup`:
 ```bash
-nslookup 2.0.0.127.zen.spamhaus.org localhost -port=5353
+nslookup 2.0.0.127.zen.spamhaus.org localhost -port=8053
+```
+
+**Testing Multi-RBL Lookups (NEW):**
+
+The DNS server supports querying an IP against all configured RBLs at once. This feature:
+- Checks the IP against all 40+ RBL servers concurrently
+- Returns results within 250ms (hard timeout)
+- Provides aggregate results via DNS A and TXT records
+- Uses the same caching system for instant responses
+
+Query an IP across all RBLs:
+```bash
+# A record - returns 127.0.0.2 if listed on any RBL
+dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com
+
+# TXT records - shows detailed results
+dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT
+
+# Example TXT output:
+# "Listed on 3/45 RBLs (45/50 checked in 180ms)"
+# "Spamhaus ZEN: LISTED"
+# "Barracuda: LISTED"
+# "SpamCop: LISTED"
+```
+
+Using `nslookup`:
+```bash
+nslookup 127.0.0.2.multi-rbl.example.com localhost -port=8053
+```
+
+Custom multi-RBL domain:
+```bash
+node src/start-dns-server.js --multi-rbl-domain=check.example.org
+dig @localhost -p 8053 8.8.8.8.check.example.org TXT
 ```
 
 **Cache Management:**
@@ -301,9 +337,12 @@ The tool checks against 40+ RBL servers including:
          │
          ▼
 ┌─────────────────┐
-│   DNS Server    │ (Port 5353)
+│   DNS Server    │ (Port 8053)
 │  (native-dns)   │
 └────────┬────────┘
+         │
+         ├─────────► Multi-RBL Query?
+         │           └─ Yes: Query all RBLs concurrently (250ms timeout)
          │
          ├─────────► Cache Check (SQLite)
          │           ├─ Hit: Return cached result (~1ms)
@@ -313,8 +352,23 @@ The tool checks against 40+ RBL servers including:
          │
          ├─────────► Cache Result (with TTL)
          │
-         └─────────► DNS Response
+         └─────────► DNS Response (A + TXT records)
 ```
+
+### Multi-RBL Lookup Flow
+
+When a query matches the multi-RBL domain (e.g., `127.0.0.2.multi-rbl.example.com`):
+
+1. **Parse IP**: Extract IP address from query (e.g., `127.0.0.2`)
+2. **Concurrent Lookups**: Query all 40+ RBL servers simultaneously using cached lookups
+3. **250ms Timeout**: Hard timeout ensures response within 250ms
+4. **Collect Results**: Gather all completed responses (cache hits return instantly)
+5. **Build Response**:
+   - **A Record**: Returns `127.0.0.2` if listed on any RBL, or NXDOMAIN if clean
+   - **TXT Records**:
+     - Summary: `"Listed on 3/45 RBLs (45/50 checked in 180ms)"`
+     - Details: `"Spamhaus ZEN: LISTED"`, `"Barracuda: LISTED"`, etc.
+6. **Cache Everything**: All individual RBL results are cached for future queries
 
 ### Cache Database Schema
 
@@ -357,10 +411,34 @@ Both the DNS server and web interface use the **same SQLite cache database**. Th
 - Single source of truth for all RBL lookups
 
 Example workflow:
-1. User queries DNS server: `dig @localhost -p 5353 2.0.0.127.zen.spamhaus.org`
+1. User queries DNS server: `dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org`
 2. Result is cached in database
 3. Web interface query for `127.0.0.2` returns cached result instantly
-4. All subsequent queries (DNS or HTTP) use the cache
+4. Multi-RBL query uses all cached results: `dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT`
+5. All subsequent queries (DNS, HTTP, or multi-RBL) use the cache
+
+## Testing Tools
+
+### test-dns.php
+
+A PHP-based DNS testing tool that sends raw DNS queries and displays results including TXT records.
+
+```bash
+php test-dns.php
+```
+
+The script tests multiple query types:
+- Single RBL lookups (e.g., `2.0.0.127.zen.spamhaus.org`)
+- Multi-RBL lookups (e.g., `127.0.0.2.multi-rbl.example.com`)
+- Regular domain lookups (forwarded to upstream DNS)
+
+Output includes:
+- DNS response codes (NOERROR, NXDOMAIN, etc.)
+- A record IP addresses
+- TXT record contents (useful for multi-RBL results)
+- Response times and transaction details
+
+Edit the `$test_queries` array in the script to customize test cases.
 
 ## Configuration
 
