@@ -2,6 +2,34 @@
 
 A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, DNS server, and command-line capabilities.
 
+## Table of Contents
+
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+  - [Configuration](#configuration)
+- [Custom HTML Header and Footer](#custom-html-header-and-footer)
+- [Usage](#usage)
+  - [DNS Server](#dns-server)
+  - [Web Interface](#web-interface)
+  - [Command Line Interface](#command-line-interface)
+- [API Endpoints](#api-endpoints)
+- [Rate Limiting](#rate-limiting)
+- [Request Logging](#request-logging)
+- [RBL Servers Included](#rbl-servers-included)
+- [How the DNS Server Works](#how-the-dns-server-works)
+- [Testing Tools](#testing-tools)
+- [Configuration](#configuration-1)
+- [Development](#development)
+- [Running as a Daemon](#running-as-a-daemon)
+  - [Using PM2](#using-pm2-recommended-for-all-platforms)
+  - [Using systemd](#using-systemd-linux)
+  - [Using Windows Service](#using-windows-service-windows)
+  - [Using Docker](#using-docker-cross-platform)
+  - [Using Cron](#using-cron-with-auto-restart-script)
+- [Scripts](#scripts)
+- [License](#license)
+
 ## Features
 
 - **DNS Server**: RFC-compliant DNS server with intelligent SQLite caching
