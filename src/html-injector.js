@@ -76,6 +76,9 @@ export function createHtmlInjectorMiddleware(options = {}) {
       return next();
     }
 
+    // Flag to prevent double injection
+    let injectionDone = false;
+
     // Intercept the sendFile function for static files
     const originalSendFile = res.sendFile;
     res.sendFile = function(path, options, callback) {
@@ -99,9 +102,11 @@ export function createHtmlInjectorMiddleware(options = {}) {
           if (footer) {
             body = body.replace('</body>', footer + '\n</body>');
           }
+
+          injectionDone = true;
         }
 
-        // Send the modified HTML
+        // Send the modified HTML (this will call the overridden send, but injection is flagged as done)
         res.type('html').send(body);
       });
     };
@@ -109,8 +114,8 @@ export function createHtmlInjectorMiddleware(options = {}) {
     // Also override send for non-static responses
     const originalSend = res.send;
     res.send = function(body) {
-      // Only process HTML responses
-      if (typeof body === 'string' && body.includes('</head>') && body.includes('</body>')) {
+      // Only process HTML responses if injection hasn't been done yet
+      if (!injectionDone && typeof body === 'string' && body.includes('</head>') && body.includes('</body>')) {
         const header = loadHeaderHtml();
         const footer = loadFooterHtml();
 
