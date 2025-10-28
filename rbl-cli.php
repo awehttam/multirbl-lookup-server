@@ -15,6 +15,10 @@
  *   --no-color        Disable colored output
  *   --json            Output raw JSON instead of table
  *   --help            Show this help message
+ *
+ * Configuration File:
+ *   Settings can be stored in ~/.rbl-cli.rc (INI format)
+ *   Command-line options override config file settings
  */
 
 class RBLCli {
@@ -23,6 +27,8 @@ class RBLCli {
     private $useColor = true;
     private $filter = 'all';
     private $jsonOutput = false;
+    private $useTls = false;
+    private $verifySsl = true;
 
     // ANSI color codes
     private $colors = [
@@ -39,7 +45,64 @@ class RBLCli {
     ];
 
     public function __construct($args) {
+        $this->loadConfigFile();
         $this->parseArgs($args);
+    }
+
+    private function loadConfigFile() {
+        // Get home directory (works on both Unix and Windows)
+        $home = getenv('HOME');
+        if (!$home) {
+            $home = getenv('USERPROFILE'); // Windows
+        }
+
+        if (!$home) {
+            return; // No home directory found, skip config file
+        }
+
+        $configFile = $home . DIRECTORY_SEPARATOR . '.rbl-cli.rc';
+
+        if (!file_exists($configFile)) {
+            return; // Config file doesn't exist, skip
+        }
+
+        // Parse INI file
+        $config = @parse_ini_file($configFile);
+
+        if ($config === false) {
+            // Config file is malformed, issue warning but continue
+            fwrite(STDERR, "Warning: Could not parse config file: $configFile\n");
+            return;
+        }
+
+        // Apply config file settings (using same names as CLI options)
+        if (isset($config['host'])) {
+            $this->apiHost = $config['host'];
+        }
+
+        if (isset($config['port'])) {
+            $this->apiPort = intval($config['port']);
+        }
+
+        if (isset($config['filter'])) {
+            $this->filter = $config['filter'];
+        }
+
+        if (isset($config['no-color'])) {
+            $this->useColor = !$config['no-color'];
+        }
+
+        if (isset($config['json'])) {
+            $this->jsonOutput = (bool)$config['json'];
+        }
+
+        if (isset($config['tls'])) {
+            $this->useTls = (bool)$config['tls'];
+        }
+
+        if (isset($config['verify-ssl'])) {
+            $this->verifySsl = (bool)$config['verify-ssl'];
+        }
     }
 
     private function parseArgs($args) {
@@ -54,6 +117,10 @@ class RBLCli {
                 $this->useColor = false;
             } elseif ($arg === '--json') {
                 $this->jsonOutput = true;
+            } elseif ($arg === '--tls') {
+                $this->useTls = true;
+            } elseif ($arg === '--no-verify-ssl') {
+                $this->verifySsl = false;
             } elseif ($arg === '--help' || $arg === '-h') {
                 $this->showHelp();
                 exit(0);
@@ -77,9 +144,24 @@ class RBLCli {
         echo "  --host=<host>     API server host (default: localhost)\n";
         echo "  --port=<port>     API server port (default: 3000)\n";
         echo "  --filter=<type>   Filter results: all, listed, clean, error (default: all)\n";
+        echo "  --tls             Use HTTPS instead of HTTP\n";
+        echo "  --no-verify-ssl   Disable SSL certificate verification (use with caution)\n";
         echo "  --no-color        Disable colored output\n";
         echo "  --json            Output raw JSON instead of table\n";
         echo "  --help, -h        Show this help message\n";
+        echo "\n";
+        echo "Configuration File:\n";
+        echo "  Settings can be stored in ~/.rbl-cli.rc (INI format)\n";
+        echo "  Command-line options override config file settings\n";
+        echo "\n";
+        echo "  Example config file:\n";
+        echo "    host = example.com\n";
+        echo "    port = 8080\n";
+        echo "    filter = listed\n";
+        echo "    tls = true\n";
+        echo "    verify-ssl = true\n";
+        echo "    no-color = false\n";
+        echo "    json = false\n";
         echo "\n";
         echo "Examples:\n";
         echo "  php rbl-cli.php 8.8.8.8\n";
@@ -93,7 +175,8 @@ class RBLCli {
     }
 
     private function apiRequest($ip) {
-        $url = "http://{$this->apiHost}:{$this->apiPort}/api/lookup";
+        $protocol = $this->useTls ? 'https' : 'http';
+        $url = "{$protocol}://{$this->apiHost}:{$this->apiPort}/api/lookup";
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -101,6 +184,19 @@ class RBLCli {
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['ip' => $ip]));
         curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+
+        // SSL/TLS options
+        if ($this->useTls) {
+            if (!$this->verifySsl) {
+                // Disable SSL verification (use with caution - for self-signed certs)
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            } else {
+                // Enable SSL verification (recommended)
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            }
+        }
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

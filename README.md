@@ -309,6 +309,17 @@ The PHP CLI tool queries the API server and displays results in a formatted text
 
 #### Basic Usage
 
+**Linux/macOS/Unix:**
+```bash
+php rbl-cli.php <ip-address>
+```
+
+**Windows:**
+```cmd
+rbl-cli.cmd <ip-address>
+```
+
+Or use PHP directly on any platform:
 ```bash
 php rbl-cli.php <ip-address>
 ```
@@ -316,18 +327,79 @@ php rbl-cli.php <ip-address>
 Example:
 ```bash
 php rbl-cli.php 8.8.8.8
+# Windows: rbl-cli.cmd 8.8.8.8
 ```
 
 #### Command Line Options
 
 ```
---host=<host>     API server host (default: localhost)
---port=<port>     API server port (default: 3000)
---filter=<type>   Filter results: all, listed, clean, error (default: all)
---no-color        Disable colored output
---json            Output raw JSON instead of table
---help, -h        Show help message
+--host=<host>       API server host (default: localhost)
+--port=<port>       API server port (default: 3000)
+--filter=<type>     Filter results: all, listed, clean, error (default: all)
+--tls               Use HTTPS instead of HTTP
+--no-verify-ssl     Disable SSL certificate verification (for self-signed certs)
+--no-color          Disable colored output
+--json              Output raw JSON instead of table
+--help, -h          Show help message
 ```
+
+#### Configuration File
+
+Settings can be stored in `~/.rbl-cli.rc` (INI format). Command-line options override config file settings.
+
+**Create config file:**
+```bash
+cat > ~/.rbl-cli.rc << 'EOF'
+; RBL CLI Configuration
+host = localhost
+port = 3000
+filter = all
+no-color = false
+json = false
+EOF
+```
+
+**Example config file** (`.rbl-cli.rc.example`):
+```ini
+; RBL CLI Configuration File
+; Command-line options will override these settings
+
+; API server host (default: localhost)
+host = localhost
+
+; API server port (default: 3000)
+port = 3000
+
+; Filter results: all, listed, clean, error (default: all)
+filter = all
+
+; Use HTTPS instead of HTTP (default: false)
+tls = false
+
+; Verify SSL certificates (default: true)
+; Set to false for self-signed certificates (INSECURE - testing only!)
+verify-ssl = true
+
+; Disable colored output (default: false)
+no-color = false
+
+; Output JSON instead of table (default: false)
+json = false
+```
+
+**SSL Certificate Issues (Windows):**
+
+If you encounter SSL certificate errors on Windows, you have two options:
+
+1. **Recommended:** Disable SSL verification for self-signed certificates:
+   ```bash
+   php rbl-cli.php 8.8.8.8 --tls --no-verify-ssl
+   ```
+   Or in config file: `verify-ssl = false`
+
+2. **Production:** Use proper SSL certificates from a trusted CA
+
+**Note:** `--no-verify-ssl` should only be used for testing with self-signed certificates. Never use this in production!
 
 #### Examples
 

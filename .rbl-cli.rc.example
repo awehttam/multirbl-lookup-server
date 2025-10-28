@@ -1,0 +1,27 @@
+; RBL CLI Configuration File Example
+; Copy this file to ~/.rbl-cli.rc and customize
+; Command-line options will override these settings
+
+; API server host (default: localhost)
+host = localhost
+
+; API server port (default: 3000)
+port = 3000
+
+; Filter results: all, listed, clean, error (default: all)
+filter = all
+
+; Use HTTPS instead of HTTP (default: false)
+tls = false
+
+; Verify SSL certificates (default: true)
+; Set to false to disable SSL verification for self-signed certificates
+; WARNING: Only disable for testing! This is insecure for production.
+verify-ssl = true
+
+; Disable colored output (default: false)
+; Set to true to disable colors
+no-color = false
+
+; Output JSON instead of table (default: false)
+json = false
