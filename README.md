@@ -11,6 +11,7 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 - [Custom HTML Header and Footer](#custom-html-header-and-footer)
 - [Usage](#usage)
   - [DNS Server](#dns-server)
+    - [Running DNS Server as a Daemon](#running-dns-server-as-a-daemon)
   - [Web Interface](#web-interface)
   - [Command Line Interface](#command-line-interface)
 - [API Endpoints](#api-endpoints)
@@ -315,6 +316,322 @@ Clear cache:
 ```bash
 npm run dns-clear-cache
 ```
+
+#### Running DNS Server as a Daemon
+
+For production environments, you'll want to run the DNS server as a background daemon that starts automatically on system boot.
+
+##### Using PM2 (Recommended for all platforms)
+
+PM2 is a production-grade process manager for Node.js applications that works on Linux, macOS, and Windows.
+
+**Install PM2 globally:**
+```bash
+npm install -g pm2
+```
+
+**Start the DNS server:**
+```bash
+pm2 start src/start-dns-server.js --name multirbl-dns
+```
+
+**With custom options:**
+```bash
+pm2 start src/start-dns-server.js --name multirbl-dns -- --port=53 --host=0.0.0.0
+```
+
+**Useful PM2 commands:**
+```bash
+pm2 list                    # View all running processes
+pm2 logs multirbl-dns       # View logs for DNS server
+pm2 restart multirbl-dns    # Restart DNS server
+pm2 stop multirbl-dns       # Stop DNS server
+pm2 delete multirbl-dns     # Remove from PM2
+pm2 monit                   # Monitor CPU and memory usage
+```
+
+**Auto-start on system boot:**
+```bash
+pm2 startup                 # Follow the displayed instructions
+pm2 save                    # Save current process list
+```
+
+##### Using systemd (Linux)
+
+Create a systemd service file for the DNS server:
+
+**1. Create service file:**
+```bash
+sudo nano /etc/systemd/system/multirbl-dns.service
+```
+
+**2. Add the following content:**
+```ini
+[Unit]
+Description=Multi-RBL Lookup DNS Server
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/multirbl-lookup
+ExecStart=/usr/bin/node src/start-dns-server.js --port=8053 --host=0.0.0.0
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Note:** To bind to port 53 (privileged port), either run as root (not recommended) or use `setcap`:
+```bash
+sudo setcap 'cap_net_bind_service=+ep' $(which node)
+```
+
+**3. Enable and start the service:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable multirbl-dns
+sudo systemctl start multirbl-dns
+```
+
+**4. Manage the service:**
+```bash
+sudo systemctl status multirbl-dns      # Check status
+sudo systemctl restart multirbl-dns     # Restart
+sudo systemctl stop multirbl-dns        # Stop
+sudo journalctl -u multirbl-dns -f      # View logs
+```
+
+##### Using Windows Service (Windows)
+
+Install `node-windows` to run as a Windows service:
+
+**1. Install node-windows:**
+```bash
+npm install -g node-windows
+```
+
+**2. Create install script (`install-dns-service.js`):**
+```javascript
+const Service = require('node-windows').Service;
+
+const svc = new Service({
+  name: 'Multi-RBL Lookup DNS',
+  description: 'Multi-RBL Lookup DNS Server',
+  script: require('path').join(__dirname, 'src', 'start-dns-server.js'),
+  scriptOptions: '--port=8053 --host=0.0.0.0',
+  nodeOptions: ['--max_old_space_size=4096']
+});
+
+svc.on('install', function() {
+  svc.start();
+  console.log('DNS service installed and started');
+});
+
+svc.install();
+```
+
+**3. Run the install script as Administrator:**
+```bash
+node install-dns-service.js
+```
+
+**4. Manage via Windows Services:**
+- Open `services.msc`
+- Find "Multi-RBL Lookup DNS"
+- Start/Stop/Restart as needed
+
+##### Using Docker (Cross-platform)
+
+Create a `Dockerfile` for the DNS server:
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 8053/udp
+
+CMD ["node", "src/start-dns-server.js", "--port=8053", "--host=0.0.0.0"]
+```
+
+**Build and run:**
+```bash
+docker build -t multirbl-dns -f Dockerfile.dns .
+docker run -d -p 8053:8053/udp --name multirbl-dns multirbl-dns
+```
+
+**For port 53 (standard DNS):**
+```bash
+docker run -d -p 53:53/udp --name multirbl-dns multirbl-dns node src/start-dns-server.js --port=53
+```
+
+**Using docker-compose (`docker-compose.yml`):**
+```yaml
+version: '3.8'
+services:
+  multirbl-dns:
+    build:
+      context: .
+      dockerfile: Dockerfile.dns
+    ports:
+      - "8053:8053/udp"
+    volumes:
+      - ./data:/app/data
+      - ./etc:/app/etc
+    restart: unless-stopped
+    command: ["node", "src/start-dns-server.js", "--port=8053", "--host=0.0.0.0"]
+```
+
+Start with:
+```bash
+docker-compose up -d
+```
+
+##### Using Cron with Auto-restart Script
+
+For simple deployments, you can use cron to ensure the DNS server stays running.
+
+**1. Create a startup/monitor script (`scripts/ensure-dns-running.sh`):**
+```bash
+#!/bin/bash
+
+# Configuration
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/dns-server.pid"
+LOG_FILE="$PROJECT_DIR/logs/dns-server.log"
+NODE_BIN="/usr/bin/node"
+DNS_PORT="8053"
+DNS_HOST="0.0.0.0"
+
+cd "$PROJECT_DIR"
+
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Function to check if DNS server is running
+is_running() {
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if ps -p "$PID" > /dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to start DNS server
+start_server() {
+    echo "[$(date)] Starting Multi-RBL DNS server on port $DNS_PORT..." >> "$LOG_FILE"
+    nohup "$NODE_BIN" src/start-dns-server.js --port="$DNS_PORT" --host="$DNS_HOST" >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "[$(date)] DNS server started with PID $(cat $PID_FILE)" >> "$LOG_FILE"
+}
+
+# Check if server is running, start if not
+if is_running; then
+    echo "[$(date)] DNS server is running with PID $(cat $PID_FILE)" >> "$LOG_FILE"
+else
+    echo "[$(date)] DNS server is not running, starting..." >> "$LOG_FILE"
+    start_server
+fi
+```
+
+**2. Make the script executable:**
+```bash
+chmod +x scripts/ensure-dns-running.sh
+```
+
+**3. Add to crontab:**
+```bash
+crontab -e
+```
+
+**Add one of these lines:**
+
+Check every minute:
+```cron
+* * * * * /path/to/multirbl-lookup/scripts/ensure-dns-running.sh
+```
+
+Check every 5 minutes:
+```cron
+*/5 * * * * /path/to/multirbl-lookup/scripts/ensure-dns-running.sh
+```
+
+Start at system reboot:
+```cron
+@reboot /path/to/multirbl-lookup/scripts/ensure-dns-running.sh
+```
+
+Combined (check every 5 minutes + start at reboot):
+```cron
+@reboot /path/to/multirbl-lookup/scripts/ensure-dns-running.sh
+*/5 * * * * /path/to/multirbl-lookup/scripts/ensure-dns-running.sh
+```
+
+**4. Create manual control scripts:**
+
+**Stop script (`scripts/stop-dns-server.sh`):**
+```bash
+#!/bin/bash
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/dns-server.pid"
+
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        kill "$PID"
+        echo "DNS server stopped (PID $PID)"
+        rm "$PID_FILE"
+    else
+        echo "PID file exists but process not running"
+        rm "$PID_FILE"
+    fi
+else
+    echo "DNS server is not running (no PID file)"
+fi
+```
+
+**Status script (`scripts/status-dns-server.sh`):**
+```bash
+#!/bin/bash
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/dns-server.pid"
+
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        echo "DNS server is running (PID $PID)"
+        ps -p "$PID" -o pid,ppid,cmd,%mem,%cpu,etime
+    else
+        echo "PID file exists but process not running"
+    fi
+else
+    echo "DNS server is not running (no PID file)"
+fi
+```
+
+**Make them executable:**
+```bash
+chmod +x scripts/stop-dns-server.sh scripts/status-dns-server.sh
+```
+
+**5. View logs:**
+```bash
+tail -f logs/dns-server.log
+```
+
+**Note:** This cron-based approach is simpler but less robust than PM2 or systemd. The server won't restart immediately on crashes (only when cron runs), and there's no built-in log rotation or advanced process management.
 
 ### Web Interface
 
