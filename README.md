@@ -24,7 +24,8 @@ multirbl-lookup/
 │   ├── cache-db.js            # SQLite cache manager
 │   ├── dns-server.js          # DNS server implementation
 │   ├── start-dns-server.js    # DNS server CLI
-│   └── server.js              # Express API server
+│   ├── server.js              # Express API server
+│   └── logger.js              # Request logging utility
 ├── public_html/
 │   ├── index.html             # Web interface
 │   ├── styles.css             # Styling
@@ -33,6 +34,8 @@ multirbl-lookup/
 │   └── rbl-servers.json       # 40+ RBL server configurations
 ├── data/
 │   └── rbl-cache.db           # SQLite cache (auto-created)
+├── logs/
+│   └── requests.log           # Request logs (auto-created)
 ├── rbl-cli.php                # PHP command-line tool
 └── package.json               # Node.js dependencies
 ```
@@ -57,6 +60,152 @@ npm start
 ```
 
 The server will start on http://localhost:3000
+
+### Configuration
+
+The web server can be configured using environment variables:
+
+**PORT** - Server port (default: 3000)
+```bash
+PORT=8080 npm start
+```
+
+**RATE_LIMIT_MAX** - Maximum number of lookup requests per time window (default: 15)
+```bash
+RATE_LIMIT_MAX=20 npm start
+```
+
+**RATE_LIMIT_WINDOW_HOURS** - Rate limit time window in hours (default: 1)
+```bash
+RATE_LIMIT_WINDOW_HOURS=2 npm start
+```
+
+**HEADER_HTML_FILE** - Path to custom header HTML file (default: public_html/header.html)
+```bash
+HEADER_HTML_FILE=/path/to/custom/header.html npm start
+```
+
+**FOOTER_HTML_FILE** - Path to custom footer HTML file (default: public_html/footer.html)
+```bash
+FOOTER_HTML_FILE=/path/to/custom/footer.html npm start
+```
+
+**Multiple environment variables:**
+```bash
+# Linux/macOS
+PORT=8080 RATE_LIMIT_MAX=20 RATE_LIMIT_WINDOW_HOURS=2 npm start
+
+# Windows (PowerShell)
+$env:PORT=8080; $env:RATE_LIMIT_MAX=20; $env:RATE_LIMIT_WINDOW_HOURS=2; npm start
+```
+
+Or set them permanently in your environment:
+```bash
+# Linux/macOS
+export PORT=8080
+export RATE_LIMIT_MAX=20
+export RATE_LIMIT_WINDOW_HOURS=2
+npm start
+
+# Windows (Command Prompt)
+set PORT=8080
+set RATE_LIMIT_MAX=20
+set RATE_LIMIT_WINDOW_HOURS=2
+npm start
+
+# Windows (PowerShell)
+$env:PORT=8080
+$env:RATE_LIMIT_MAX=20
+$env:RATE_LIMIT_WINDOW_HOURS=2
+npm start
+```
+
+## Custom HTML Header and Footer
+
+You can inject custom HTML into the web interface to add branding, analytics, banners, or custom styling.
+
+### How It Works
+
+- **Header HTML** is inserted immediately after the `</head>` tag
+- **Footer HTML** is inserted immediately before the `</body>` tag
+- Changes are cached for 1 minute for performance
+- Files are optional - if they don't exist, nothing is injected
+
+### Setup
+
+1. **Copy the example files:**
+```bash
+cp public_html/header.html.example public_html/header.html
+cp public_html/footer.html.example public_html/footer.html
+```
+
+2. **Edit the files with your custom HTML:**
+```bash
+# Edit header.html
+nano public_html/header.html
+
+# Edit footer.html
+nano public_html/footer.html
+```
+
+3. **Restart the server** (or wait up to 1 minute for cache refresh)
+
+### Example Uses
+
+**Custom banner (header.html):**
+```html
+<div style="background: #f0f0f0; padding: 10px; text-align: center;">
+    <strong>Notice:</strong> This is a demonstration server
+</div>
+```
+
+**Analytics tracking (footer.html):**
+```html
+<!-- Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'GA_MEASUREMENT_ID');
+</script>
+```
+
+**Custom footer (footer.html):**
+```html
+<div style="text-align: center; padding: 20px; color: #666;">
+    <p>&copy; 2025 Your Organization | <a href="/privacy">Privacy Policy</a></p>
+</div>
+```
+
+**Custom CSS (header.html):**
+```html
+<style>
+  body {
+    font-family: 'Your Custom Font', sans-serif;
+  }
+  .container {
+    max-width: 1400px;
+  }
+</style>
+```
+
+### Custom File Locations
+
+You can specify custom file paths using environment variables:
+
+```bash
+HEADER_HTML_FILE=/etc/multirbl/custom-header.html npm start
+FOOTER_HTML_FILE=/etc/multirbl/custom-footer.html npm start
+```
+
+### Notes
+
+- Header and footer files are in `.gitignore` (your customizations won't be committed)
+- Example files (`.example` extension) are tracked in git for reference
+- HTML is injected server-side on every request
+- No restart needed - changes take effect within 1 minute (cache TTL)
+- Both files are optional - the server works fine if they don't exist
 
 ## Usage
 
@@ -310,6 +459,101 @@ Get the list of configured RBL servers.
 ### GET /api/health
 
 Health check endpoint.
+
+## Rate Limiting
+
+To prevent server overload and abuse, the web server implements rate limiting on RBL lookup endpoints (`/api/lookup` and `/api/lookup-stream`).
+
+### Default Limits
+
+- **15 requests per hour** per client IP address
+- Configurable via environment variables (see Configuration section)
+
+### How It Works
+
+- Rate limiting is applied **per client IP address**
+- Works correctly behind proxies and load balancers (uses `X-Forwarded-For` header)
+- When limit is exceeded, HTTP 429 (Too Many Requests) is returned
+- Response includes `RateLimit-*` headers showing current usage
+- Rate limit violations are logged automatically
+
+### Rate Limit Headers
+
+The server returns these headers with each lookup request:
+
+```
+RateLimit-Limit: 15           # Maximum requests allowed
+RateLimit-Remaining: 12       # Requests remaining in window
+RateLimit-Reset: 1698765432   # Unix timestamp when limit resets
+```
+
+### Rate Limit Exceeded Response
+
+When the rate limit is exceeded, the API returns:
+
+```json
+{
+  "success": false,
+  "error": "Too many lookup requests. Maximum 15 requests per 1 hour(s). Please try again later.",
+  "retryAfter": 3600
+}
+```
+
+### Adjusting Rate Limits
+
+See the Configuration section for environment variables to adjust rate limits:
+- `RATE_LIMIT_MAX` - Maximum requests (default: 15)
+- `RATE_LIMIT_WINDOW_HOURS` - Time window in hours (default: 1)
+
+## Request Logging
+
+All RBL lookup requests made through the web server are automatically logged with the following information:
+
+- **Timestamp**: ISO 8601 format
+- **Client IP Address**: Automatically detects the real client IP, even behind proxies
+- **Target IP**: The IP address being checked against RBLs
+- **User Agent**: Browser or client information
+
+### Log File Location
+
+Logs are stored in: `logs/requests.log`
+
+### Log Format
+
+```
+[2025-10-28T02:26:56.814Z] [INFO] RBL lookup request {"clientIp":"203.0.113.45","targetIp":"8.8.8.8","userAgent":"curl/8.14.1"}
+```
+
+### Proxy Support
+
+The logging system automatically detects the real client IP address when the server is behind a proxy or load balancer by checking these headers in order:
+
+1. `X-Forwarded-For` (takes the first IP in the chain)
+2. `X-Real-IP`
+3. Direct connection IP (fallback)
+
+### Log Rotation
+
+- Log files automatically rotate when they reach 10MB
+- Rotated files are timestamped: `requests-YYYY-MM-DDTHH-MM-SS.log`
+- Old logs are preserved and can be archived or deleted manually
+
+### Viewing Logs
+
+View recent requests:
+```bash
+tail -f logs/requests.log
+```
+
+View last 100 requests:
+```bash
+tail -n 100 logs/requests.log
+```
+
+Search for specific IP:
+```bash
+grep "203.0.113.45" logs/requests.log
+```
 
 ## RBL Servers Included
 

@@ -21,6 +21,7 @@ data/
 Thumbs.db
 
 # Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -30,3 +31,7 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+
+# Custom HTML includes (examples are tracked)
+public_html/header.html
+public_html/footer.html
