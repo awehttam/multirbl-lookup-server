@@ -472,6 +472,328 @@ npm run dns-server:dev
 
 Edit `src/rbl-lookup.js` and change the timeout parameter in `lookupSingleRbl()` (default: 5000ms).
 
+## Running as a Daemon
+
+For production environments, you'll want to run the web server as a background daemon that starts automatically on system boot.
+
+### Using PM2 (Recommended for all platforms)
+
+PM2 is a production-grade process manager for Node.js applications that works on Linux, macOS, and Windows.
+
+**Install PM2 globally:**
+```bash
+npm install -g pm2
+```
+
+**Start the web server:**
+```bash
+pm2 start src/server.js --name multirbl-web
+```
+
+**Start the DNS server:**
+```bash
+pm2 start src/start-dns-server.js --name multirbl-dns
+```
+
+**Useful PM2 commands:**
+```bash
+pm2 list                    # View all running processes
+pm2 logs multirbl-web       # View logs for web server
+pm2 logs multirbl-dns       # View logs for DNS server
+pm2 restart multirbl-web    # Restart web server
+pm2 stop multirbl-web       # Stop web server
+pm2 delete multirbl-web     # Remove from PM2
+pm2 monit                   # Monitor CPU and memory usage
+```
+
+**Auto-start on system boot:**
+```bash
+pm2 startup                 # Follow the displayed instructions
+pm2 save                    # Save current process list
+```
+
+### Using systemd (Linux)
+
+Create a systemd service file for the web server:
+
+**1. Create service file:**
+```bash
+sudo nano /etc/systemd/system/multirbl-web.service
+```
+
+**2. Add the following content:**
+```ini
+[Unit]
+Description=Multi-RBL Lookup Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/multirbl-lookup
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**3. Enable and start the service:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable multirbl-web
+sudo systemctl start multirbl-web
+```
+
+**4. Manage the service:**
+```bash
+sudo systemctl status multirbl-web    # Check status
+sudo systemctl restart multirbl-web   # Restart
+sudo systemctl stop multirbl-web      # Stop
+sudo journalctl -u multirbl-web -f    # View logs
+```
+
+**For the DNS server, create a similar file at `/etc/systemd/system/multirbl-dns.service`:**
+```ini
+[Unit]
+Description=Multi-RBL Lookup DNS Server
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/path/to/multirbl-lookup
+ExecStart=/usr/bin/node src/start-dns-server.js --port=8053
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Using Windows Service (Windows)
+
+Install `node-windows` to run as a Windows service:
+
+**1. Install node-windows:**
+```bash
+npm install -g node-windows
+```
+
+**2. Create install script (`install-service.js`):**
+```javascript
+const Service = require('node-windows').Service;
+
+const svc = new Service({
+  name: 'Multi-RBL Lookup Web',
+  description: 'Multi-RBL Lookup Web Server',
+  script: require('path').join(__dirname, 'src', 'server.js'),
+  nodeOptions: ['--max_old_space_size=4096']
+});
+
+svc.on('install', function() {
+  svc.start();
+  console.log('Service installed and started');
+});
+
+svc.install();
+```
+
+**3. Run the install script as Administrator:**
+```bash
+node install-service.js
+```
+
+**4. Manage via Windows Services:**
+- Open `services.msc`
+- Find "Multi-RBL Lookup Web"
+- Start/Stop/Restart as needed
+
+### Using Docker (Cross-platform)
+
+Create a `Dockerfile`:
+
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000 8053/udp
+
+CMD ["node", "src/server.js"]
+```
+
+**Build and run:**
+```bash
+docker build -t multirbl-lookup .
+docker run -d -p 3000:3000 -p 8053:8053/udp --name multirbl multirbl-lookup
+```
+
+**Using docker-compose (`docker-compose.yml`):**
+```yaml
+version: '3.8'
+services:
+  multirbl:
+    build: .
+    ports:
+      - "3000:3000"
+      - "8053:8053/udp"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+```
+
+Start with:
+```bash
+docker-compose up -d
+```
+
+### Using Cron with Auto-restart Script
+
+For simple deployments, you can use cron to ensure the server stays running by checking and restarting it periodically.
+
+**1. Create a startup/monitor script (`scripts/ensure-running.sh`):**
+```bash
+#!/bin/bash
+
+# Configuration
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/server.pid"
+LOG_FILE="$PROJECT_DIR/logs/server.log"
+NODE_BIN="/usr/bin/node"
+
+cd "$PROJECT_DIR"
+
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Function to check if server is running
+is_running() {
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if ps -p "$PID" > /dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to start server
+start_server() {
+    echo "[$(date)] Starting Multi-RBL Lookup server..." >> "$LOG_FILE"
+    nohup "$NODE_BIN" src/server.js >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "[$(date)] Server started with PID $(cat $PID_FILE)" >> "$LOG_FILE"
+}
+
+# Check if server is running, start if not
+if is_running; then
+    echo "[$(date)] Server is running with PID $(cat $PID_FILE)" >> "$LOG_FILE"
+else
+    echo "[$(date)] Server is not running, starting..." >> "$LOG_FILE"
+    start_server
+fi
+```
+
+**2. Make the script executable:**
+```bash
+chmod +x scripts/ensure-running.sh
+```
+
+**3. Add to crontab:**
+```bash
+crontab -e
+```
+
+**Add one of these lines:**
+
+Check every minute:
+```cron
+* * * * * /path/to/multirbl-lookup/scripts/ensure-running.sh
+```
+
+Check every 5 minutes:
+```cron
+*/5 * * * * /path/to/multirbl-lookup/scripts/ensure-running.sh
+```
+
+Start at system reboot:
+```cron
+@reboot /path/to/multirbl-lookup/scripts/ensure-running.sh
+```
+
+Combined (check every 5 minutes + start at reboot):
+```cron
+@reboot /path/to/multirbl-lookup/scripts/ensure-running.sh
+*/5 * * * * /path/to/multirbl-lookup/scripts/ensure-running.sh
+```
+
+**4. Create manual control scripts:**
+
+**Stop script (`scripts/stop-server.sh`):**
+```bash
+#!/bin/bash
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/server.pid"
+
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        kill "$PID"
+        echo "Server stopped (PID $PID)"
+        rm "$PID_FILE"
+    else
+        echo "PID file exists but process not running"
+        rm "$PID_FILE"
+    fi
+else
+    echo "Server is not running (no PID file)"
+fi
+```
+
+**Status script (`scripts/status-server.sh`):**
+```bash
+#!/bin/bash
+PROJECT_DIR="/path/to/multirbl-lookup"
+PID_FILE="$PROJECT_DIR/server.pid"
+
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ps -p "$PID" > /dev/null 2>&1; then
+        echo "Server is running (PID $PID)"
+        ps -p "$PID" -o pid,ppid,cmd,%mem,%cpu,etime
+    else
+        echo "PID file exists but process not running"
+    fi
+else
+    echo "Server is not running (no PID file)"
+fi
+```
+
+**Make them executable:**
+```bash
+chmod +x scripts/stop-server.sh scripts/status-server.sh
+```
+
+**5. View logs:**
+```bash
+tail -f logs/server.log
+```
+
+**Note:** This cron-based approach is simpler but less robust than PM2 or systemd. The server won't restart immediately on crashes (only when cron runs), and there's no built-in log rotation or advanced process management.
+
 ## Scripts
 
 - `npm start` - Start web server (with caching)
