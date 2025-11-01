@@ -48,6 +48,17 @@ async function init() {
             filterResults();
         });
     });
+
+    // Check for IP parameter in URL and trigger automatic lookup
+    const urlParams = new URLSearchParams(window.location.search);
+    const ipParam = urlParams.get('ip');
+    if (ipParam) {
+        ipInput.value = ipParam;
+        // Trigger the lookup after a short delay to ensure DOM is ready
+        setTimeout(() => {
+            lookupForm.dispatchEvent(new Event('submit'));
+        }, 100);
+    }
 }
 
 async function handleLookup(e) {
