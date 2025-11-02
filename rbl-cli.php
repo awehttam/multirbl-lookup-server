@@ -153,9 +153,11 @@ class RBLCli {
     private function showHelp() {
         echo $this->color("RBL Lookup CLI Tool\n", 'bold');
         echo "\n";
-        echo "Usage: php rbl-cli.php <ip-address> [options]\n";
+        echo $this->color("USAGE:\n", 'bold');
+        echo "  php rbl-cli.php <ip-address> [options]\n";
+        echo "  php rbl-cli.php custom <command> [args] [options]\n";
         echo "\n";
-        echo "Options:\n";
+        echo $this->color("RBL LOOKUP OPTIONS:\n", 'bold');
         echo "  --host=<host>     API server host (default: localhost)\n";
         echo "  --port=<port>     API server port (default: 3000)\n";
         echo "  --filter=<type>   Filter results: all, listed, clean, error (default: all)\n";
@@ -165,7 +167,14 @@ class RBLCli {
         echo "  --json            Output raw JSON instead of table\n";
         echo "  --help, -h        Show this help message\n";
         echo "\n";
-        echo "Configuration File:\n";
+        echo $this->color("CUSTOM RBL COMMANDS:\n", 'bold');
+        echo "  " . $this->color("custom add", 'cyan') . " <ip|cidr> [reason]     Add IP/CIDR to custom RBL\n";
+        echo "  " . $this->color("custom remove", 'cyan') . " <ip|cidr>           Remove IP/CIDR from custom RBL\n";
+        echo "  " . $this->color("custom list", 'cyan') . " [--limit=N]           List custom RBL entries\n";
+        echo "  " . $this->color("custom config", 'cyan') . " <zone-name>         Set custom RBL zone name\n";
+        echo "  " . $this->color("custom apikey", 'cyan') . " [description]       Generate new API key\n";
+        echo "\n";
+        echo $this->color("CONFIGURATION FILE:\n", 'bold');
         echo "  Settings can be stored in ~/.rbl-cli.rc (INI format)\n";
         echo "  Command-line options override config file settings\n";
         echo "\n";
@@ -177,12 +186,23 @@ class RBLCli {
         echo "    verify-ssl = true\n";
         echo "    no-color = false\n";
         echo "    json = false\n";
+        echo "    api-key = your_64_character_api_key_here\n";
         echo "\n";
-        echo "Examples:\n";
+        echo $this->color("EXAMPLES:\n", 'bold');
+        echo "  # RBL Lookup\n";
         echo "  php rbl-cli.php 8.8.8.8\n";
         echo "  php rbl-cli.php 8.8.8.8 --filter=listed\n";
         echo "  php rbl-cli.php 127.0.0.2 --host=example.com --port=8080\n";
         echo "  php rbl-cli.php 8.8.8.8 --json\n";
+        echo "\n";
+        echo "  # Custom RBL Management\n";
+        echo "  php rbl-cli.php custom config myrbl.example.com\n";
+        echo "  php rbl-cli.php custom add 192.0.2.100 \"Spam source\"\n";
+        echo "  php rbl-cli.php custom add 198.51.100.0/24 \"Spam network\"\n";
+        echo "  php rbl-cli.php custom list\n";
+        echo "  php rbl-cli.php custom list --limit=50\n";
+        echo "  php rbl-cli.php custom remove 192.0.2.100\n";
+        echo "  php rbl-cli.php custom apikey \"Production API Key\"\n";
     }
 
     private function validateIp($ip) {
