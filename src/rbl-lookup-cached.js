@@ -101,7 +101,7 @@ async function lookupSingleRbl(ip, rblServer, timeout = 5000) {
  */
 export async function lookupSingleRblWithCache(ip, rblServer, db, timeout = 5000) {
   // Check cache first
-  const cached = db.getCached(ip, rblServer.host);
+  const cached = await db.getCached(ip, rblServer.host);
 
   if (cached) {
     // Return cached result with additional metadata
@@ -124,7 +124,7 @@ export async function lookupSingleRblWithCache(ip, rblServer, db, timeout = 5000
   const result = await lookupSingleRbl(ip, rblServer, timeout);
 
   // Cache the result
-  db.cache(
+  await db.cache(
     ip,
     rblServer.host,
     result.listed === true,
@@ -155,6 +155,42 @@ export async function lookupIpCached(ip, db, onProgress = null) {
   const rblServers = await loadRblServers();
   const results = [];
 
+  // Import custom RBL lookup
+  const { getCustomRblConfig, checkCustomRbl } = await import('./custom-rbl-lookup.js');
+
+  // Check custom RBL first (if configured)
+  try {
+    const customRblConfig = await getCustomRblConfig();
+    if (customRblConfig && customRblConfig.enabled) {
+      const startTime = Date.now();
+      const customResult = await checkCustomRbl(ip);
+      const responseTime = Date.now() - startTime;
+
+      // Add custom RBL result to results array
+      results.push({
+        name: 'Custom RBL',
+        host: customRblConfig.zone_name,
+        description: customRblConfig.description || 'Custom blocklist',
+        listed: customResult.listed,
+        response: customResult.response,
+        responseTime: responseTime,
+        error: customResult.error,
+        ttl: 0, // Custom RBL results not cached
+        fromCache: false,
+        customRbl: true, // Flag to identify custom RBL
+        reason: customResult.reason || null
+      });
+
+      // Call progress callback if provided
+      if (onProgress) {
+        onProgress(results[0], results.length, rblServers.length + 1);
+      }
+    }
+  } catch (error) {
+    console.error('Error checking custom RBL:', error.message);
+    // Continue with regular RBL lookups even if custom RBL fails
+  }
+
   // Create promises for all lookups
   const lookupPromises = rblServers.map(async (server) => {
     const result = await lookupSingleRblWithCache(ip, server, db);
@@ -162,7 +198,7 @@ export async function lookupIpCached(ip, db, onProgress = null) {
 
     // Call progress callback if provided
     if (onProgress) {
-      onProgress(result, results.length, rblServers.length);
+      onProgress(result, results.length, rblServers.length + 1);
     }
 
     return result;
@@ -186,17 +222,18 @@ export async function lookupIpCached(ip, db, onProgress = null) {
   // Calculate cache statistics for this lookup
   const cacheHits = results.filter(r => r.fromCache).length;
   const cacheMisses = results.filter(r => !r.fromCache).length;
+  const totalChecked = rblServers.length + (results.some(r => r.customRbl) ? 1 : 0);
 
   return {
     ip,
     timestamp: new Date().toISOString(),
-    totalChecked: rblServers.length,
+    totalChecked: totalChecked,
     listedCount: results.filter(r => r.listed === true).length,
     notListedCount: results.filter(r => r.listed === false).length,
     errorCount: results.filter(r => r.error !== null).length,
     cacheHits,
     cacheMisses,
-    cacheHitRate: ((cacheHits / rblServers.length) * 100).toFixed(1) + '%',
+    cacheHitRate: ((cacheHits / totalChecked) * 100).toFixed(1) + '%',
     results
   };
 }

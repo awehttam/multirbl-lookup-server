@@ -7,6 +7,9 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 - [Features](#features)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Setup](#setup)
+  - [Migrating from SQLite to PostgreSQL](#migrating-from-sqlite-to-postgresql)
   - [Configuration](#configuration)
 - [Custom HTML Header and Footer](#custom-html-header-and-footer)
 - [Usage](#usage)
@@ -14,13 +17,17 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
     - [Running DNS Server as a Daemon](#running-dns-server-as-a-daemon)
   - [Web Interface](#web-interface)
   - [Command Line Interface](#command-line-interface)
+- [Custom RBL Management](#custom-rbl-management)
+  - [Quick Start](#quick-start)
+  - [Testing Custom RBL via DNS](#testing-custom-rbl-via-dns)
+  - [Custom RBL API Endpoints](#custom-rbl-api-endpoints)
+  - [CLI Commands Reference](#cli-commands-reference)
 - [API Endpoints](#api-endpoints)
 - [Rate Limiting](#rate-limiting)
 - [Request Logging](#request-logging)
 - [RBL Servers Included](#rbl-servers-included)
 - [How the DNS Server Works](#how-the-dns-server-works)
 - [Testing Tools](#testing-tools)
-- [Configuration](#configuration-1)
 - [Development](#development)
 - [Running as a Daemon](#running-as-a-daemon)
   - [Using PM2](#using-pm2-recommended-for-all-platforms)
@@ -33,13 +40,15 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 
 ## Features
 
-- **DNS Server**: RFC-compliant DNS server with intelligent SQLite caching
+- **DNS Server**: RFC-compliant DNS server with intelligent PostgreSQL caching
+- **Custom RBL**: Self-managed blocklist with CIDR range support (IPv4/IPv6)
 - **Multi-RBL Lookup**: Query all RBLs at once via DNS with 250ms timeout
 - **Web Interface**: Modern, responsive web UI with real-time updates
-- **CLI Tool**: PHP command-line tool with formatted table output
-- **Smart Caching**: TTL-based caching in SQLite database
+- **CLI Tool**: PHP command-line tool with formatted table output and custom RBL management
+- **Smart Caching**: TTL-based caching in PostgreSQL database
+- **API Key Authentication**: Secure admin API for custom RBL management
 - **Concurrent Queries**: Check 40+ RBL servers simultaneously
-- **Fast Performance**: Cache hits ~1ms, concurrent DNS lookups
+- **Fast Performance**: Cache hits ~1ms, concurrent DNS lookups, efficient CIDR matching
 - **Color-Coded Results**: Easy-to-read status indicators
 - **Filterable Results**: View all, listed only, clean only, or errors only
 
@@ -48,25 +57,32 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 ```
 multirbl-lookup/
 ├── src/
-│   ├── rbl-lookup.js          # Core RBL lookup logic
-│   ├── rbl-lookup-cached.js   # Cached RBL lookups with TTL
-│   ├── cache-db.js            # SQLite cache manager
-│   ├── dns-server.js          # DNS server implementation
-│   ├── start-dns-server.js    # DNS server CLI
-│   ├── server.js              # Express API server
-│   └── logger.js              # Request logging utility
+│   ├── rbl-lookup.js              # Core RBL lookup logic
+│   ├── rbl-lookup-cached.js       # Cached RBL lookups with TTL
+│   ├── cache-db.js                # PostgreSQL cache manager
+│   ├── db-postgres.js             # PostgreSQL connection pool
+│   ├── custom-rbl-lookup.js       # Custom RBL CIDR matching
+│   ├── auth-middleware.js         # API key authentication
+│   ├── dns-server.js              # DNS server implementation
+│   ├── start-dns-server.js        # DNS server CLI
+│   ├── server.js                  # Express API server
+│   └── logger.js                  # Request logging utility
+├── database/
+│   ├── schema.sql                 # PostgreSQL schema
+│   └── migrate.js                 # Database migration script
+├── docs/
+│   └── CUSTOM-RBL.md              # Custom RBL documentation
 ├── public_html/
-│   ├── index.html             # Web interface
-│   ├── styles.css             # Styling
-│   └── app.js                 # Frontend JavaScript
+│   ├── index.html                 # Web interface
+│   ├── styles.css                 # Styling
+│   └── app.js                     # Frontend JavaScript
 ├── etc/
-│   └── rbl-servers.json       # 40+ RBL server configurations
-├── data/
-│   └── rbl-cache.db           # SQLite cache (auto-created)
+│   └── rbl-servers.json           # 40+ RBL server configurations
 ├── logs/
-│   └── requests.log           # Request logs (auto-created)
-├── rbl-cli.php                # PHP command-line tool
-└── package.json               # Node.js dependencies
+│   └── requests.log               # Request logs (auto-created)
+├── rbl-cli.php                    # PHP CLI with custom RBL commands
+├── .env.example                   # Environment configuration template
+└── package.json                   # Node.js dependencies
 ```
 
 ## Installation
@@ -74,49 +90,201 @@ multirbl-lookup/
 ### Prerequisites
 
 - Node.js (v14 or higher)
+- PostgreSQL (v12 or higher)
 - PHP (v7.4 or higher) with curl extension (for CLI tool)
 
 ### Setup
 
-1. Install Node.js dependencies:
+1. **Install PostgreSQL** (if not already installed):
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
+```
+
+**macOS:**
+```bash
+brew install postgresql
+brew services start postgresql
+```
+
+**Windows:**
+Download from [postgresql.org](https://www.postgresql.org/download/windows/)
+
+2. **Create PostgreSQL database and user:**
+
+```bash
+# Connect to PostgreSQL
+sudo -u postgres psql
+
+# Run these commands in psql:
+CREATE DATABASE multirbl;
+CREATE USER multirbl WITH ENCRYPTED PASSWORD 'changeme';
+GRANT ALL PRIVILEGES ON DATABASE multirbl TO multirbl;
+
+# Exit psql
+\q
+```
+
+3. **Install Node.js dependencies:**
 ```bash
 npm install
 ```
 
-2. Start the API server:
+4. **Configure environment variables:**
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env with your database credentials
+nano .env
+```
+
+Update the following in `.env`:
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=multirbl
+DB_USER=multirbl
+DB_PASSWORD=changeme
+```
+
+5. **Run database migration:**
+
+```bash
+node database/migrate.js
+```
+
+You should see:
+```
+✓ Connected successfully
+✓ Schema created successfully
+✓ Migration completed successfully
+```
+
+6. **Start the API server:**
 ```bash
 npm start
 ```
 
 The server will start on http://localhost:3000
 
+### Migrating from SQLite to PostgreSQL
+
+If you have an existing installation using SQLite (`data/rbl-cache.db`), follow these steps to migrate:
+
+#### Migration Steps
+
+1. **Backup your existing SQLite database** (optional, for reference):
+```bash
+cp data/rbl-cache.db data/rbl-cache.db.backup
+```
+
+2. **Install PostgreSQL** (see Setup section above)
+
+3. **Update dependencies:**
+```bash
+npm install pg bcrypt dotenv
+```
+
+4. **Configure PostgreSQL** (see Setup steps 2-5 above)
+
+5. **Run the migration script:**
+```bash
+node database/migrate.js
+```
+
+6. **Test the server:**
+```bash
+npm start
+```
+
+7. **Verify caching is working:**
+```bash
+# Make a test request
+curl -X POST http://localhost:3000/api/lookup \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "8.8.8.8"}'
+
+# Check cache stats
+curl http://localhost:3000/api/cache/stats
+```
+
+#### What Changed
+
+**Database:**
+- SQLite → PostgreSQL
+- File-based storage → Client-server database
+- TEXT columns → Native INET/CIDR types
+- Simple indexes → GiST indexes for IP matching
+
+**Performance:**
+- Similar or better cache performance
+- Better concurrent query handling
+- Native IPv6 support
+- Efficient CIDR range matching
+
+**New Features:**
+- Custom RBL with CIDR support
+- API key authentication
+- Admin management endpoints
+- IPv6 ready
+
+#### Notes
+
+- The old SQLite database file (`data/rbl-cache.db`) is no longer used and can be deleted
+- All cache data starts fresh in PostgreSQL (no automatic data migration)
+- API endpoints remain compatible (no client changes needed)
+- DNS server functionality unchanged
+
 ### Configuration
 
-The web server can be configured using environment variables:
+The server is configured using environment variables in `.env` file (copy from `.env.example`):
 
-**PORT** - Server port (default: 3000)
+#### Database Configuration
+
+```env
+DB_HOST=localhost              # PostgreSQL host
+DB_PORT=5432                   # PostgreSQL port
+DB_NAME=multirbl               # Database name
+DB_USER=multirbl               # Database user
+DB_PASSWORD=changeme           # Database password
+DB_POOL_MAX=20                 # Max connections in pool
+DB_IDLE_TIMEOUT=30000          # Idle timeout (ms)
+DB_CONNECT_TIMEOUT=2000        # Connection timeout (ms)
+```
+
+#### Web Server Configuration
+
+```env
+PORT=3000                      # Server port (default: 3000)
+RATE_LIMIT_MAX=15              # Max requests per window (default: 15)
+RATE_LIMIT_WINDOW_HOURS=1      # Rate limit window in hours (default: 1)
+HEADER_HTML_FILE=./public_html/header.html  # Custom header HTML
+FOOTER_HTML_FILE=./public_html/footer.html  # Custom footer HTML
+```
+
+#### DNS Server Configuration
+
+```env
+DNS_SERVER_PORT=8053                        # DNS server port
+DNS_SERVER_HOST=0.0.0.0                     # DNS bind address
+DNS_UPSTREAM=8.8.8.8                        # Upstream DNS server
+DNS_MULTI_RBL_DOMAIN=multi-rbl.example.com  # Multi-RBL domain
+```
+
+#### Custom RBL Configuration
+
+```env
+CUSTOM_RBL_ZONE=myrbl.example.com  # Custom RBL zone name (informational)
+```
+
+You can also set environment variables directly:
+
 ```bash
 PORT=8080 npm start
-```
-
-**RATE_LIMIT_MAX** - Maximum number of lookup requests per time window (default: 15)
-```bash
-RATE_LIMIT_MAX=20 npm start
-```
-
-**RATE_LIMIT_WINDOW_HOURS** - Rate limit time window in hours (default: 1)
-```bash
-RATE_LIMIT_WINDOW_HOURS=2 npm start
-```
-
-**HEADER_HTML_FILE** - Path to custom header HTML file (default: public_html/header.html)
-```bash
-HEADER_HTML_FILE=/path/to/custom/header.html npm start
-```
-
-**FOOTER_HTML_FILE** - Path to custom footer HTML file (default: public_html/footer.html)
-```bash
-FOOTER_HTML_FILE=/path/to/custom/footer.html npm start
 ```
 
 **Multiple environment variables:**
@@ -768,6 +936,130 @@ Disable colors (useful for piping or logging):
 php rbl-cli.php 8.8.8.8 --no-color > results.txt
 ```
 
+## Custom RBL Management
+
+The Multi-RBL Lookup tool now includes support for self-managed custom RBL lists with CIDR range support for both IPv4 and IPv6.
+
+### Quick Start
+
+1. **Generate an API key:**
+
+First, you need an API key for authentication. There are two ways to generate one:
+
+**Option A: Generate initial key via database (first time only):**
+```bash
+psql -U multirbl -d multirbl -c "
+INSERT INTO api_keys (key_hash, key_prefix, description)
+SELECT crypt('your-secure-key-here', gen_salt('bf')),
+       'your-sec',
+       'Initial admin key';"
+```
+
+Add to `~/.rbl-cli.rc`:
+```ini
+api-key = your-secure-key-here
+```
+
+**Option B: Generate via CLI (requires existing API key):**
+```bash
+php rbl-cli.php custom apikey generate --desc="Production key"
+```
+
+2. **Add entries to your custom RBL:**
+
+```bash
+# Add a single IP (stored as /32)
+php rbl-cli.php custom add 192.168.1.100/32 "Known spammer"
+
+# Add an entire subnet
+php rbl-cli.php custom add 10.0.0.0/24 "Spam network"
+
+# Add IPv6 range
+php rbl-cli.php custom add 2001:db8::/32 "Blocked IPv6 range"
+```
+
+3. **List entries:**
+
+```bash
+php rbl-cli.php custom list
+```
+
+4. **Remove entries:**
+
+```bash
+php rbl-cli.php custom remove 192.168.1.100/32
+```
+
+5. **View/update configuration:**
+
+```bash
+# View current config
+php rbl-cli.php custom config
+
+# Update zone name
+php rbl-cli.php custom config --zone=blocklist.example.com
+```
+
+### Testing Custom RBL via DNS
+
+Once you have entries in your custom RBL, test via DNS server:
+
+```bash
+# Start DNS server
+node src/start-dns-server.js
+
+# Test query (IP 192.168.1.100 becomes 100.1.168.192 reversed)
+dig @localhost -p 8053 100.1.168.192.myrbl.example.com
+
+# Get reason via TXT record
+dig @localhost -p 8053 100.1.168.192.myrbl.example.com TXT
+```
+
+### Custom RBL API Endpoints
+
+All admin endpoints require `X-API-Key` header:
+
+```bash
+# List entries
+curl -H "X-API-Key: YOUR_KEY" http://localhost:3000/api/admin/custom-rbl/entries
+
+# Add entry
+curl -X POST http://localhost:3000/api/admin/custom-rbl/entries \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_KEY" \
+  -d '{"network": "203.0.113.0/24", "reason": "Spam source"}'
+
+# Check IP (public endpoint, no auth required)
+curl -X POST http://localhost:3000/api/custom-rbl/check \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "203.0.113.50"}'
+```
+
+### CLI Commands Reference
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `custom add <cidr> [reason]` | Add IP/CIDR to blocklist | `custom add 10.0.0.1/32 "Spammer"` |
+| `custom remove <cidr>` | Remove entry | `custom remove 10.0.0.1/32` |
+| `custom list [--limit=N]` | List all entries | `custom list --limit=50` |
+| `custom config [--zone=name]` | View/update config | `custom config --zone=my.rbl.com` |
+| `custom apikey generate` | Generate API key | `custom apikey generate --desc="Key"` |
+
+### Features
+
+- **CIDR Matching**: Efficient subnet matching using PostgreSQL's native INET/CIDR types
+- **IPv4 and IPv6**: Full support for both IP versions
+- **GiST Indexes**: Fast lookups even with millions of entries
+- **API Key Authentication**: Secure access control via X-API-Key header
+- **DNS Integration**: Custom RBL queries work seamlessly with DNS server
+- **CLI Management**: Full-featured command-line interface
+- **Reason Tracking**: Store why an IP/range is blocked
+
+### Documentation
+
+For complete documentation including architecture, API reference, and examples, see:
+- **[docs/CUSTOM-RBL.md](docs/CUSTOM-RBL.md)** - Complete Custom RBL guide
+
 ## API Endpoints
 
 ### POST /api/lookup
@@ -1002,10 +1294,13 @@ The tool checks against 40+ RBL servers including:
 │  (native-dns)   │
 └────────┬────────┘
          │
+         ├─────────► Custom RBL Query?
+         │           └─ Yes: PostgreSQL CIDR lookup
+         │
          ├─────────► Multi-RBL Query?
          │           └─ Yes: Query all RBLs concurrently (250ms timeout)
          │
-         ├─────────► Cache Check (SQLite)
+         ├─────────► Cache Check (PostgreSQL)
          │           ├─ Hit: Return cached result (~1ms)
          │           └─ Miss: Continue to lookup
          │
@@ -1035,16 +1330,19 @@ When a query matches the multi-RBL domain (e.g., `127.0.0.2.multi-rbl.example.co
 
 ```sql
 CREATE TABLE rbl_cache (
-  ip TEXT NOT NULL,
-  rbl_host TEXT NOT NULL,
-  listed INTEGER NOT NULL,
-  response TEXT,
+  ip INET NOT NULL,                  -- Native PostgreSQL INET type
+  rbl_host VARCHAR(255) NOT NULL,
+  listed BOOLEAN NOT NULL,           -- Native boolean
+  response INET,                     -- Native INET type
   error TEXT,
   ttl INTEGER NOT NULL,
-  cached_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
+  cached_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL,
   UNIQUE(ip, rbl_host)
 );
+
+-- GiST index for efficient IP lookups
+CREATE INDEX idx_rbl_cache_ip ON rbl_cache USING GIST(ip inet_ops);
 ```
 
 ### TTL Management
@@ -1059,15 +1357,17 @@ CREATE TABLE rbl_cache (
 - **Cache Hit**: ~1ms response time (99.7% faster than DNS lookup)
 - **Cache Miss**: 100-5000ms (depends on RBL server)
 - **Concurrent Lookups**: All RBL servers queried in parallel
-- **Storage**: SQLite database in `data/rbl-cache.db`
+- **Storage**: PostgreSQL database with connection pooling
+- **Custom RBL CIDR Lookup**: < 10ms using GiST indexes
 
 ### Shared Cache
 
-Both the DNS server and web interface use the **same SQLite cache database**. This means:
+Both the DNS server and web interface use the **same PostgreSQL cache database**. This means:
 
 - Queries via DNS server are cached for web interface
 - Queries via web interface are cached for DNS server
-- Cache is shared across all services
+- Custom RBL lookups integrated seamlessly
+- Cache is shared across all services with connection pooling
 - Performance benefits apply to all query methods
 - Single source of truth for all RBL lookups
 

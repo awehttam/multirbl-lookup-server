@@ -170,11 +170,15 @@ function createResultItem(result) {
             ${statusIcon}
         </div>
         <div class="result-info">
-            <div class="result-name">${escapeHtml(result.name)}</div>
+            <div class="result-name">
+                ${escapeHtml(result.name)}
+                ${result.customRbl ? '<span style="background: #4a90e2; color: white; font-size: 0.7em; padding: 2px 6px; border-radius: 3px; margin-left: 6px;">CUSTOM</span>' : ''}
+            </div>
             <div class="result-host">${escapeHtml(result.host)}</div>
             <div class="result-description">${escapeHtml(result.description)}</div>
             ${result.error ? `<div class="result-description" style="color: var(--danger-color);">Error: ${escapeHtml(result.error)}</div>` : ''}
             ${result.response ? `<div class="result-description">Response: ${escapeHtml(result.response)}</div>` : ''}
+            ${result.reason ? `<div class="result-description" style="color: #e74c3c; font-weight: 500;">Reason: ${escapeHtml(result.reason)}</div>` : ''}
         </div>
         <div class="result-meta">
             <div class="result-time">${result.responseTime}ms</div>

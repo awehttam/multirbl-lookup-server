@@ -6,7 +6,9 @@
  * Command-line tool to query the RBL API service and display results
  * in a nicely formatted text table.
  *
- * Usage: php rbl-cli.php <ip-address> [options]
+ * Usage:
+ *   php rbl-cli.php <ip-address> [options]       # Regular RBL lookup
+ *   php rbl-cli.php custom <command> [args]      # Custom RBL management
  *
  * Options:
  *   --host=<host>     API server host (default: localhost)
@@ -16,9 +18,17 @@
  *   --json            Output raw JSON instead of table
  *   --help            Show this help message
  *
+ * Custom RBL Commands:
+ *   custom add <cidr> [reason]           # Add IP/CIDR to blocklist
+ *   custom remove <cidr>                 # Remove IP/CIDR from blocklist
+ *   custom list [--limit=N]              # List all entries
+ *   custom config [--zone=<name>]        # View/update config
+ *   custom apikey generate [--desc=...]  # Generate API key
+ *
  * Configuration File:
  *   Settings can be stored in ~/.rbl-cli.rc (INI format)
  *   Command-line options override config file settings
+ *   Add 'api-key = YOUR_KEY' for custom RBL management
  */
 
 class RBLCli {
@@ -29,6 +39,7 @@ class RBLCli {
     private $jsonOutput = false;
     private $useTls = false;
     private $verifySsl = true;
+    private $apiKey = null;
 
     // ANSI color codes
     private $colors = [
@@ -102,6 +113,10 @@ class RBLCli {
 
         if (isset($config['verify-ssl'])) {
             $this->verifySsl = (bool)$config['verify-ssl'];
+        }
+
+        if (isset($config['api-key'])) {
+            $this->apiKey = $config['api-key'];
         }
     }
 
@@ -380,6 +395,254 @@ class RBLCli {
         }
     }
 
+    private function apiRequestCustom($method, $endpoint, $data = null) {
+        if (!$this->apiKey) {
+            throw new Exception("API key required. Add 'api-key = YOUR_KEY' to ~/.rbl-cli.rc");
+        }
+
+        $protocol = $this->useTls ? 'https' : 'http';
+        $url = "{$protocol}://{$this->apiHost}:{$this->apiPort}{$endpoint}";
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+
+        $headers = [
+            'Content-Type: application/json',
+            'X-API-Key: ' . $this->apiKey
+        ];
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+        if ($data !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+        // SSL/TLS options
+        if ($this->useTls) {
+            if (!$this->verifySsl) {
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            } else {
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+            }
+        }
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if (curl_errno($ch)) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            throw new Exception("API request failed: $error");
+        }
+
+        curl_close($ch);
+
+        $result = json_decode($response, true);
+        if (!$result) {
+            throw new Exception("Invalid API response");
+        }
+
+        if ($httpCode >= 400) {
+            $error = $result['error'] ?? "HTTP $httpCode error";
+            throw new Exception($error);
+        }
+
+        return $result;
+    }
+
+    public function customAdd($cidr, $reason = null) {
+        try {
+            echo "Adding $cidr to custom RBL...\n";
+
+            $result = $this->apiRequestCustom('POST', '/api/admin/custom-rbl/entries', [
+                'network' => $cidr,
+                'reason' => $reason
+            ]);
+
+            if ($result['success']) {
+                echo $this->color("✓ Successfully added entry\n", 'green');
+                echo "  Network: {$result['entry']['network']}\n";
+                echo "  Reason: " . ($result['entry']['reason'] ?: 'None') . "\n";
+                echo "  Entry ID: {$result['entry']['id']}\n";
+            } else {
+                echo $this->color("✗ Failed: {$result['error']}\n", 'red');
+                exit(1);
+            }
+        } catch (Exception $e) {
+            echo $this->color("Error: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+    }
+
+    public function customRemove($cidr) {
+        try {
+            echo "Removing $cidr from custom RBL...\n";
+
+            // First, list entries to find the ID
+            $result = $this->apiRequestCustom('GET', '/api/admin/custom-rbl/entries?limit=1000');
+
+            if (!$result['success']) {
+                throw new Exception("Failed to list entries: " . ($result['error'] ?? 'Unknown error'));
+            }
+
+            $entryToDelete = null;
+            foreach ($result['entries'] as $entry) {
+                if ($entry['network'] === $cidr) {
+                    $entryToDelete = $entry;
+                    break;
+                }
+            }
+
+            if (!$entryToDelete) {
+                echo $this->color("✗ Entry not found: $cidr\n", 'red');
+                exit(1);
+            }
+
+            $deleteResult = $this->apiRequestCustom('DELETE', "/api/admin/custom-rbl/entries/{$entryToDelete['id']}");
+
+            if ($deleteResult['success']) {
+                echo $this->color("✓ Successfully removed entry\n", 'green');
+                echo "  Network: $cidr\n";
+            } else {
+                echo $this->color("✗ Failed: {$deleteResult['error']}\n", 'red');
+                exit(1);
+            }
+        } catch (Exception $e) {
+            echo $this->color("Error: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+    }
+
+    public function customList($limit = 100) {
+        try {
+            echo "Fetching custom RBL entries...\n\n";
+
+            $result = $this->apiRequestCustom('GET', "/api/admin/custom-rbl/entries?limit=$limit");
+
+            if (!$result['success']) {
+                throw new Exception($result['error'] ?? 'Unknown error');
+            }
+
+            $entries = $result['entries'];
+
+            if (empty($entries)) {
+                echo "No entries found.\n";
+                return;
+            }
+
+            echo $this->color("Custom RBL Entries ({$result['total']} total)\n", 'bold');
+            echo "\n";
+
+            // Calculate column widths
+            $widths = [8, 20, 40, 10];
+            foreach ($entries as $entry) {
+                $widths[1] = max($widths[1], mb_strlen($entry['network']));
+                $widths[2] = max($widths[2], mb_strlen($entry['reason'] ?? ''));
+            }
+
+            // Draw table
+            $this->drawLine($widths);
+            $this->drawRow(
+                ['ID', 'Network (CIDR)', 'Reason', 'Status'],
+                $widths,
+                ['bold', 'bold', 'bold', 'bold']
+            );
+            $this->drawLine($widths);
+
+            foreach ($entries as $entry) {
+                $status = $entry['listed'] ? 'LISTED' : 'DISABLED';
+                $statusColor = $entry['listed'] ? 'red' : 'dim';
+
+                $this->drawRow(
+                    [
+                        $entry['id'],
+                        $entry['network'],
+                        $entry['reason'] ?? '',
+                        $status
+                    ],
+                    $widths,
+                    [null, null, 'dim', $statusColor]
+                );
+            }
+
+            $this->drawLine($widths);
+            echo "\nShowing " . count($entries) . " of {$result['total']} entries\n\n";
+        } catch (Exception $e) {
+            echo $this->color("Error: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+    }
+
+    public function customConfig($zoneName = null) {
+        try {
+            if ($zoneName) {
+                echo "Updating custom RBL configuration...\n";
+
+                $result = $this->apiRequestCustom('PUT', '/api/admin/custom-rbl/config', [
+                    'zoneName' => $zoneName
+                ]);
+
+                if ($result['success']) {
+                    echo $this->color("✓ Configuration updated\n", 'green');
+                } else {
+                    echo $this->color("✗ Failed: {$result['error']}\n", 'red');
+                    exit(1);
+                }
+            }
+
+            // Display current config
+            $result = $this->apiRequestCustom('GET', '/api/admin/custom-rbl/config');
+
+            if (!$result['success']) {
+                throw new Exception($result['error'] ?? 'Unknown error');
+            }
+
+            $config = $result['config'];
+
+            echo "\n" . $this->color("Custom RBL Configuration\n", 'bold');
+            echo "  Zone Name: {$config['zone_name']}\n";
+            echo "  Description: " . ($config['description'] ?? 'None') . "\n";
+            echo "  Enabled: " . ($config['enabled'] ? 'Yes' : 'No') . "\n\n";
+        } catch (Exception $e) {
+            echo $this->color("Error: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+    }
+
+    public function customApikeyGenerate($description = null) {
+        try {
+            echo "Generating new API key...\n";
+
+            $result = $this->apiRequestCustom('POST', '/api/admin/api-keys', [
+                'description' => $description
+            ]);
+
+            if ($result['success']) {
+                echo "\n" . $this->color("✓ API Key Generated Successfully\n", 'green');
+                echo "\n" . $this->color("IMPORTANT: Save this key now - it will not be shown again!\n", 'yellow');
+                echo "\n";
+                echo $this->color($result['apiKey'], 'bold') . "\n";
+                echo "\n";
+                echo "Key Prefix: {$result['keyPrefix']}\n";
+                echo "Description: " . ($result['description'] ?: 'None') . "\n";
+                echo "Created: {$result['createdAt']}\n";
+                echo "\n";
+                echo "Add to ~/.rbl-cli.rc:\n";
+                echo "  api-key = {$result['apiKey']}\n\n";
+            } else {
+                echo $this->color("✗ Failed: {$result['error']}\n", 'red');
+                exit(1);
+            }
+        } catch (Exception $e) {
+            echo $this->color("Error: " . $e->getMessage() . "\n", 'red');
+            exit(1);
+        }
+    }
+
     public function run($ip) {
         if (!$ip) {
             echo $this->color("Error: IP address is required\n", 'red');
@@ -416,6 +679,98 @@ if (php_sapi_name() !== 'cli') {
 // Remove script name from args
 $args = array_slice($argv, 1);
 
+// Check for custom RBL commands
+if (!empty($args) && $args[0] === 'custom') {
+    array_shift($args); // Remove 'custom'
+
+    if (empty($args)) {
+        echo "Error: Custom command required\n";
+        echo "Usage: php rbl-cli.php custom <command> [args]\n";
+        echo "Commands: add, remove, list, config, apikey\n";
+        exit(1);
+    }
+
+    $command = array_shift($args);
+
+    // Extract options and positional args
+    $options = [];
+    $positional = [];
+
+    foreach ($args as $arg) {
+        if (strpos($arg, '--') === 0) {
+            $options[] = $arg;
+        } else {
+            $positional[] = $arg;
+        }
+    }
+
+    $cli = new RBLCli($options);
+
+    switch ($command) {
+        case 'add':
+            if (empty($positional[0])) {
+                echo "Error: CIDR required\n";
+                echo "Usage: php rbl-cli.php custom add <cidr> [reason]\n";
+                exit(1);
+            }
+            $cidr = $positional[0];
+            $reason = isset($positional[1]) ? implode(' ', array_slice($positional, 1)) : null;
+            $cli->customAdd($cidr, $reason);
+            break;
+
+        case 'remove':
+            if (empty($positional[0])) {
+                echo "Error: CIDR required\n";
+                echo "Usage: php rbl-cli.php custom remove <cidr>\n";
+                exit(1);
+            }
+            $cli->customRemove($positional[0]);
+            break;
+
+        case 'list':
+            $limit = 100;
+            foreach ($options as $opt) {
+                if (strpos($opt, '--limit=') === 0) {
+                    $limit = (int)substr($opt, 8);
+                }
+            }
+            $cli->customList($limit);
+            break;
+
+        case 'config':
+            $zoneName = null;
+            foreach ($options as $opt) {
+                if (strpos($opt, '--zone=') === 0) {
+                    $zoneName = substr($opt, 7);
+                }
+            }
+            $cli->customConfig($zoneName);
+            break;
+
+        case 'apikey':
+            if (empty($positional[0]) || $positional[0] !== 'generate') {
+                echo "Error: Use 'apikey generate' to create a new API key\n";
+                exit(1);
+            }
+            $description = null;
+            foreach ($options as $opt) {
+                if (strpos($opt, '--desc=') === 0) {
+                    $description = substr($opt, 7);
+                }
+            }
+            $cli->customApikeyGenerate($description);
+            break;
+
+        default:
+            echo "Error: Unknown custom command: $command\n";
+            echo "Available commands: add, remove, list, config, apikey\n";
+            exit(1);
+    }
+
+    exit(0);
+}
+
+// Regular RBL lookup mode
 // Extract IP (first non-option argument)
 $ip = null;
 $options = [];

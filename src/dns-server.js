@@ -2,6 +2,7 @@ import dns from 'native-dns';
 import { lookupSingleRblWithCache } from './rbl-lookup-cached.js';
 import { getDatabase } from './cache-db.js';
 import { getRblServers } from './rbl-lookup.js';
+import { getCustomRblConfig, checkCustomRbl } from './custom-rbl-lookup.js';
 
 /**
  * DNS Server for RBL lookups with caching
@@ -16,6 +17,7 @@ class RBLDnsServer {
     this.db = getDatabase();
     this.rblServers = [];
     this.rblServersList = []; // Array of all RBL servers
+    this.customRblConfig = null; // Custom RBL configuration
   }
 
   /**
@@ -29,6 +31,18 @@ class RBLDnsServer {
       map[server.host] = server;
       return map;
     }, {});
+
+    // Load custom RBL configuration
+    this.customRblConfig = await getCustomRblConfig();
+    if (this.customRblConfig) {
+      console.log(`Custom RBL enabled: ${this.customRblConfig.zone_name}`);
+      // Add custom RBL to the server map for DNS lookups
+      this.rblServers[this.customRblConfig.zone_name] = {
+        name: 'Custom RBL',
+        host: this.customRblConfig.zone_name,
+        description: this.customRblConfig.description || 'Custom blocklist'
+      };
+    }
 
     console.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
     console.log(`Multi-RBL lookup domain: ${this.multiRblDomain}`);
@@ -218,12 +232,18 @@ class RBLDnsServer {
     let isRblQuery = false;
     let rblHost = null;
     let ip = null;
+    let isCustomRbl = false;
 
     for (const host of Object.keys(this.rblServers)) {
       if (queryName.endsWith(`.${host}`)) {
         isRblQuery = true;
         rblHost = host;
         ip = this.parseReverseIp(queryName, host);
+
+        // Check if this is the custom RBL
+        if (this.customRblConfig && host === this.customRblConfig.zone_name) {
+          isCustomRbl = true;
+        }
         break;
       }
     }
@@ -235,9 +255,17 @@ class RBLDnsServer {
 
     try {
       const rblServer = this.rblServers[rblHost];
-      console.log(`RBL query for ${ip} against ${rblServer.name}`);
+      console.log(`RBL query for ${ip} against ${rblServer.name}${isCustomRbl ? ' [CUSTOM]' : ''}`);
 
-      const result = await lookupSingleRblWithCache(ip, rblServer, this.db);
+      let result;
+
+      if (isCustomRbl) {
+        // Use custom RBL lookup
+        result = await checkCustomRbl(ip, rblHost);
+      } else {
+        // Use standard RBL lookup with cache
+        result = await lookupSingleRblWithCache(ip, rblServer, this.db);
+      }
 
       response.header.qr = 1; // This is a response
       response.header.aa = 1; // Authoritative answer
@@ -253,7 +281,16 @@ class RBLDnsServer {
           ttl: result.ttl || 3600
         }));
 
-        console.log(`  -> LISTED (${responseIp}) ${result.fromCache ? '[CACHED]' : '[FRESH]'}`);
+        // Add TXT record with reason for custom RBL
+        if (isCustomRbl && result.reason) {
+          response.answer.push(dns.TXT({
+            name: queryName,
+            data: result.reason,
+            ttl: 3600
+          }));
+        }
+
+        console.log(`  -> LISTED (${responseIp})${isCustomRbl ? ` [${result.reason || 'No reason'}]` : ''} ${result.fromCache ? '[CACHED]' : '[FRESH]'}`);
       } else if (result.error) {
         // Error occurred - respond with SERVFAIL
         console.log(`  -> ERROR: ${result.error} ${result.fromCache ? '[CACHED]' : '[FRESH]'}`);
@@ -344,24 +381,32 @@ class RBLDnsServer {
     console.log(`  Listen: ${this.host}:${this.port}`);
     console.log(`  Upstream DNS: ${this.upstreamDns}`);
     console.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
-    console.log(`  Cache: SQLite database`);
+    console.log(`  Cache: PostgreSQL database`);
+    if (this.customRblConfig) {
+      console.log(`  Custom RBL: ${this.customRblConfig.zone_name}`);
+    }
     console.log(`\nTo test single RBL:`);
     console.log(`  dig @localhost -p ${this.port} 2.0.0.127.zen.spamhaus.org`);
+    if (this.customRblConfig) {
+      console.log(`\nTo test custom RBL:`);
+      console.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name}`);
+      console.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name} TXT`);
+    }
     console.log(`\nTo test multi-RBL lookup:`);
     console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain}`);
     console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain} TXT\n`);
 
     // Clean expired cache entries every 5 minutes
-    setInterval(() => {
-      const deleted = this.db.cleanExpired();
+    setInterval(async () => {
+      const deleted = await this.db.cleanExpired();
       if (deleted > 0) {
         console.log(`Cleaned ${deleted} expired cache entries`);
       }
     }, 5 * 60 * 1000);
 
     // Log cache stats every hour
-    setInterval(() => {
-      const stats = this.db.getStats();
+    setInterval(async () => {
+      const stats = await this.db.getStats();
       console.log(`Cache stats: ${stats.valid} valid, ${stats.expired} expired, ${stats.total} total`);
     }, 60 * 60 * 1000);
   }
