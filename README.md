@@ -408,7 +408,7 @@ FOOTER_HTML_FILE=/etc/multirbl/custom-footer.html npm start
 
 ### DNS Server
 
-Start the DNS server with intelligent caching (supports both UDP and TCP):
+Start the DNS server with caching (supports both UDP and TCP):
 
 ```bash
 npm run dns-server
@@ -444,7 +444,7 @@ Using `nslookup`:
 nslookup 2.0.0.127.zen.spamhaus.org localhost -port=8053
 ```
 
-**Testing Multi-RBL Lookups (NEW):**
+**DNS Server Multi-RBL Lookups :**
 
 The DNS server supports querying an IP against all configured RBLs at once. This feature:
 - Checks the IP against all 40+ RBL servers concurrently
@@ -808,7 +808,7 @@ tail -f logs/dns-server.log
 
 ### Web Interface
 
-The web interface now uses the same caching system as the DNS server for improved performance.
+The web interface uses the same caching system as the DNS server for improved performance.
 
 1. Open your browser to http://localhost:3000
 2. Enter an IPv4 address (e.g., 8.8.8.8)
@@ -943,7 +943,7 @@ php rbl-cli.php 8.8.8.8 --no-color > results.txt
 
 ## Custom RBL Management
 
-The Multi-RBL Lookup tool now includes support for self-managed custom RBL lists with CIDR range support for both IPv4 and IPv6.
+The Multi-RBL Lookup tool includes support for self-managed custom RBL lists with CIDR range support for both IPv4 and IPv6.
 
 ### Quick Start
 
@@ -1775,4 +1775,4 @@ tail -f logs/server.log
 
 ## License
 
-MIT
+Affero GPL (see [LICENSE]())
