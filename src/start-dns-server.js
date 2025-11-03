@@ -69,9 +69,9 @@ Testing Single RBL:
   nslookup 2.0.0.127.zen.spamhaus.org localhost -port=8053
 
 Testing Multi-RBL (checks IP against all RBLs):
-  dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com
-  dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT
-  nslookup 127.0.0.2.multi-rbl.example.com localhost -port=8053
+  dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com
+  dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com TXT
+  nslookup 2.0.0.127.multi-rbl.example.com localhost -port=8053
 
 Note: Use port 53 for standard DNS (requires admin/root privileges)
 `);

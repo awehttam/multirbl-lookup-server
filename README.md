@@ -450,10 +450,10 @@ The DNS server supports querying an IP against all configured RBLs at once. This
 Query an IP across all RBLs:
 ```bash
 # A record - returns 127.0.0.2 if listed on any RBL
-dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com
+dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com
 
 # TXT records - shows detailed results
-dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT
+dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com TXT
 
 # Example TXT output:
 # "Listed on 3/45 RBLs (45/50 checked in 180ms)"
@@ -464,7 +464,7 @@ dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT
 
 Using `nslookup`:
 ```bash
-nslookup 127.0.0.2.multi-rbl.example.com localhost -port=8053
+nslookup 2.0.0.127.multi-rbl.example.com localhost -port=8053
 ```
 
 Custom multi-RBL domain:
@@ -1316,7 +1316,7 @@ The tool checks against 40+ RBL servers including:
 
 ### Multi-RBL Lookup Flow
 
-When a query matches the multi-RBL domain (e.g., `127.0.0.2.multi-rbl.example.com`):
+When a query matches the multi-RBL domain (e.g., `2.0.0.127.multi-rbl.example.com`):
 
 1. **Parse IP**: Extract IP address from query (e.g., `127.0.0.2`)
 2. **Concurrent Lookups**: Query all 40+ RBL servers simultaneously using cached lookups
@@ -1378,7 +1378,7 @@ Example workflow:
 1. User queries DNS server: `dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org`
 2. Result is cached in database
 3. Web interface query for `127.0.0.2` returns cached result instantly
-4. Multi-RBL query uses all cached results: `dig @localhost -p 8053 127.0.0.2.multi-rbl.example.com TXT`
+4. Multi-RBL query uses all cached results: `dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com TXT`
 5. All subsequent queries (DNS, HTTP, or multi-RBL) use the cache
 
 ## Testing Tools
@@ -1393,7 +1393,7 @@ php test-dns.php
 
 The script tests multiple query types:
 - Single RBL lookups (e.g., `2.0.0.127.zen.spamhaus.org`)
-- Multi-RBL lookups (e.g., `127.0.0.2.multi-rbl.example.com`)
+- Multi-RBL lookups (e.g., `2.0.0.127.multi-rbl.example.com`)
 - Regular domain lookups (forwarded to upstream DNS)
 
 Output includes:

@@ -77,7 +77,7 @@ class RBLDnsServer {
 
   /**
    * Parse IP from multi-RBL domain query
-   * e.g., "127.0.0.2.multi-rbl.example.com" -> "127.0.0.2"
+   * e.g., "2.0.0.127.multi-rbl.example.com" -> "127.0.0.2"
    */
   parseMultiRblIp(query) {
     // Remove the multi-RBL domain from the query
@@ -101,7 +101,8 @@ class RBLDnsServer {
       }
     }
 
-    return parts.join('.');
+    // Reverse the IP (DNS blacklist format)
+    return parts.reverse().join('.');
   }
 
   /**
@@ -393,8 +394,8 @@ class RBLDnsServer {
       console.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name} TXT`);
     }
     console.log(`\nTo test multi-RBL lookup:`);
-    console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain}`);
-    console.log(`  dig @localhost -p ${this.port} 127.0.0.2.${this.multiRblDomain} TXT\n`);
+    console.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain}`);
+    console.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain} TXT\n`);
 
     // Clean expired cache entries every 5 minutes
     setInterval(async () => {
