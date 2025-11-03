@@ -1295,10 +1295,13 @@ The tool checks against 40+ RBL servers including:
 └────────┬────────┘
          │
          ├─────────► Custom RBL Query?
-         │           └─ Yes: PostgreSQL CIDR lookup
+         │           └─ Yes: PostgreSQL CIDR lookup → Response
          │
          ├─────────► Multi-RBL Query?
-         │           └─ Yes: Query all RBLs concurrently (250ms timeout)
+         │           ├─ Yes: Check cache for ALL RBLs
+         │           ├─ Cache hits return instantly
+         │           ├─ Cache misses: Query concurrently (250ms timeout)
+         │           └─ Cache new results → Aggregate response
          │
          ├─────────► Cache Check (PostgreSQL)
          │           ├─ Hit: Return cached result (~1ms)
