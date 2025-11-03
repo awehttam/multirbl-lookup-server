@@ -1,4 +1,4 @@
--- Multi-RBL Lookup PostgreSQL Schema
+-- Multi-RBL Lookup PostgreSQL Schema (OPTIMIZED)
 -- This schema supports IPv4 and IPv6 addresses with CIDR notation
 
 -- Enable necessary extensions
@@ -16,13 +16,17 @@ CREATE TABLE IF NOT EXISTS rbl_cache (
   ttl INTEGER NOT NULL,                 -- Time-to-live in seconds
   cached_at BIGINT NOT NULL,            -- Unix timestamp when cached
   expires_at BIGINT NOT NULL,           -- Unix timestamp when expires
-  UNIQUE(ip, rbl_host)
+  UNIQUE(ip, rbl_host)                  -- Unique constraint creates B-tree index automatically
 );
 
 -- Indexes for RBL cache performance
--- Note: UNIQUE(ip, rbl_host) constraint creates an automatic B-tree index
--- which is optimal for exact lookups in getCached() queries
+-- REMOVED: idx_rbl_cache_ip_rbl - redundant with UNIQUE constraint
+-- REMOVED: idx_rbl_cache_ip - GiST not needed for exact IP matches
+-- KEPT: expires_at index for cleanup queries
 CREATE INDEX IF NOT EXISTS idx_rbl_cache_expires ON rbl_cache(expires_at);
+
+-- OPTIONAL: If you have queries that filter on listed status frequently
+-- CREATE INDEX IF NOT EXISTS idx_rbl_cache_listed ON rbl_cache(listed) WHERE expires_at > extract(epoch from now());
 
 -- Custom RBL Configuration Table
 CREATE TABLE IF NOT EXISTS custom_rbl_config (
@@ -46,6 +50,7 @@ CREATE TABLE IF NOT EXISTS custom_rbl_entries (
 );
 
 -- Index for fast CIDR lookups using GiST (Generalized Search Tree)
+-- GiST is CORRECT here because we're doing network containment queries (>>= operator)
 CREATE INDEX IF NOT EXISTS idx_custom_rbl_network ON custom_rbl_entries USING GIST(network inet_ops);
 CREATE INDEX IF NOT EXISTS idx_custom_rbl_listed ON custom_rbl_entries(listed);
 
@@ -95,3 +100,9 @@ ON CONFLICT (zone_name) DO NOTHING;
 --   INSERT INTO custom_rbl_entries (network, reason) VALUES ('192.168.1.0/24', 'Spam source');
 -- Add a single IP (as /32):
 --   INSERT INTO custom_rbl_entries (network, reason) VALUES ('10.0.0.1/32', 'Known spammer');
+
+-- Performance Notes:
+-- 1. UNIQUE(ip, rbl_host) creates an automatic B-tree index, perfect for exact lookups
+-- 2. expires_at index helps with cleanup queries (DELETE WHERE expires_at <= X)
+-- 3. GiST index on custom_rbl_entries.network is correct for CIDR containment (>>= operator)
+-- 4. All other indexes from original schema were redundant and have been removed
