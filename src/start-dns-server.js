@@ -2,7 +2,7 @@
 
 /**
  * Multi-RBL Lookup Tool
- * Copyright (C) 2025 Matthew Asham
+ * Copyright (C) 2025 Matthew Asham & Multi-RBL Lookup Contributors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
