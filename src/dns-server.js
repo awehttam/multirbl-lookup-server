@@ -108,7 +108,7 @@ class RBLDnsServer {
   /**
    * Perform multi-RBL lookup for an IP with 250ms timeout
    */
-  async performMultiRblLookup(ip, response, queryName) {
+  async performMultiRblLookup(ip, response, queryName, queryType) {
     console.log(`Multi-RBL lookup for ${ip} (250ms timeout)`);
     const startTime = Date.now();
 
@@ -166,40 +166,43 @@ class RBLDnsServer {
     response.header.ra = 0; // Recursion not available
 
     if (listedCount > 0) {
-      // IP is listed on at least one RBL - respond with 127.0.0.2
-      response.answer.push(dns.A({
-        name: queryName,
-        address: '127.0.0.2',
-        ttl: 300
-      }));
-
-      // Add TXT record with summary
-      const summary = `Listed on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} checked in ${elapsed}ms)`;
-      response.answer.push(dns.TXT({
-        name: queryName,
-        data: summary,
-        ttl: 300
-      }));
-
-      // Add TXT records for each listing (limit to 10 to avoid DNS packet size issues)
-      const listedResults = results.filter(r => r.listed);
-      const maxTxtRecords = 10;
-      const txtRecordsToAdd = listedResults.slice(0, maxTxtRecords);
-
-      txtRecordsToAdd.forEach(result => {
-        const txtData = `${result.name}: LISTED`;
+      // Return different responses based on query type
+      if (queryType === dns.consts.NAME_TO_QTYPE.TXT) {
+        // TXT query - return summary and list of RBLs
+        const summary = `Listed on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} checked in ${elapsed}ms)`;
         response.answer.push(dns.TXT({
           name: queryName,
-          data: txtData,
+          data: [summary],  // Must be array of strings
           ttl: 300
         }));
-      });
 
-      // If there are more than maxTxtRecords, add a note
-      if (listedResults.length > maxTxtRecords) {
-        response.answer.push(dns.TXT({
+        // Add TXT records for each listing (limit to 5 to avoid DNS packet size issues)
+        const listedResults = results.filter(r => r.listed);
+        const maxTxtRecords = 5;
+        const txtRecordsToAdd = listedResults.slice(0, maxTxtRecords);
+
+        txtRecordsToAdd.forEach(result => {
+          const txtData = `${result.name}: LISTED`;
+          response.answer.push(dns.TXT({
+            name: queryName,
+            data: [txtData],  // Must be array of strings
+            ttl: 300
+          }));
+        });
+
+        // If there are more than maxTxtRecords, add a note
+        if (listedResults.length > maxTxtRecords) {
+          response.answer.push(dns.TXT({
+            name: queryName,
+            data: [`... and ${listedResults.length - maxTxtRecords} more (${maxTxtRecords}/${listedResults.length} shown)`],  // Must be array
+            ttl: 300
+          }));
+        }
+      } else {
+        // A record query - just return the IP
+        response.answer.push(dns.A({
           name: queryName,
-          data: `... and ${listedResults.length - maxTxtRecords} more (${maxTxtRecords}/${listedResults.length} shown)`,
+          address: '127.0.0.2',
           ttl: 300
         }));
       }
@@ -226,7 +229,7 @@ class RBLDnsServer {
     if (queryName.endsWith(`.${this.multiRblDomain}`)) {
       const ip = this.parseMultiRblIp(queryName);
       if (ip) {
-        await this.performMultiRblLookup(ip, response, queryName);
+        await this.performMultiRblLookup(ip, response, queryName, queryType);
         console.log(`  -> Sending response...`);
         response.send();
         console.log(`  -> Response sent`);
@@ -297,7 +300,7 @@ class RBLDnsServer {
         if (isCustomRbl && result.reason) {
           response.answer.push(dns.TXT({
             name: queryName,
-            data: result.reason,
+            data: [result.reason],  // Must be array of strings
             ttl: 3600
           }));
         }
