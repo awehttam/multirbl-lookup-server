@@ -949,9 +949,24 @@ The Multi-RBL Lookup tool includes support for self-managed custom RBL lists wit
 
 1. **Generate an API key:**
 
-First, you need an API key for authentication. There are two ways to generate one:
+First, you need an API key for authentication. There are three ways to generate one:
 
-**Option A: Generate initial key via database (first time only):**
+**Option A: Bootstrap Script (Recommended for first-time setup):**
+```bash
+node database/bootstrap-apikey.js "Initial admin key"
+```
+
+This will:
+- Generate a cryptographically secure random API key
+- Store it in the database with bcrypt hashing
+- Display the key (save it immediately - you won't see it again!)
+
+Save the key to `~/.rbl-cli.rc`:
+```ini
+api-key = YOUR_GENERATED_KEY_HERE
+```
+
+**Option B: Manual database insert (alternative):**
 ```bash
 psql -U multirbl -d multirbl -c "
 INSERT INTO api_keys (key_hash, key_prefix, description)
@@ -960,12 +975,7 @@ SELECT crypt('your-secure-key-here', gen_salt('bf')),
        'Initial admin key';"
 ```
 
-Add to `~/.rbl-cli.rc`:
-```ini
-api-key = your-secure-key-here
-```
-
-**Option B: Generate via CLI (requires existing API key):**
+**Option C: Generate via CLI (requires existing API key):**
 ```bash
 php rbl-cli.php custom apikey generate --desc="Production key"
 ```
