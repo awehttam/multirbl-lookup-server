@@ -181,17 +181,28 @@ class RBLDnsServer {
         ttl: 300
       }));
 
-      // Add TXT records for each listing
-      results.forEach(result => {
-        if (result.listed) {
-          const txtData = `${result.name}: LISTED`;
-          response.answer.push(dns.TXT({
-            name: queryName,
-            data: txtData,
-            ttl: 300
-          }));
-        }
+      // Add TXT records for each listing (limit to 10 to avoid DNS packet size issues)
+      const listedResults = results.filter(r => r.listed);
+      const maxTxtRecords = 10;
+      const txtRecordsToAdd = listedResults.slice(0, maxTxtRecords);
+
+      txtRecordsToAdd.forEach(result => {
+        const txtData = `${result.name}: LISTED`;
+        response.answer.push(dns.TXT({
+          name: queryName,
+          data: txtData,
+          ttl: 300
+        }));
       });
+
+      // If there are more than maxTxtRecords, add a note
+      if (listedResults.length > maxTxtRecords) {
+        response.answer.push(dns.TXT({
+          name: queryName,
+          data: `... and ${listedResults.length - maxTxtRecords} more (${maxTxtRecords}/${listedResults.length} shown)`,
+          ttl: 300
+        }));
+      }
 
       console.log(`  -> LISTED on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} completed in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
     } else {
