@@ -31,7 +31,7 @@ class CacheDatabase {
 
     try {
       const result = await query(
-        `SELECT ip::text, rbl_host, listed, response::text, error, ttl, cached_at, expires_at
+        `SELECT host(ip) as ip, rbl_host, listed, host(response) as response, error, ttl, cached_at, expires_at
          FROM rbl_cache
          WHERE ip = $1::inet AND rbl_host = $2 AND expires_at > $3`,
         [ip, rblHost, now]
