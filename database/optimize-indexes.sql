@@ -1,4 +1,4 @@
--- Migration to remove redundant indexes from rbl_cache table
+-- Migration to optimize indexes on rbl_cache table
 -- Run this to optimize your existing database
 
 -- Drop redundant indexes
@@ -8,6 +8,10 @@ DROP INDEX IF EXISTS idx_rbl_cache_ip_rbl;
 -- This GiST index is not needed - we're doing exact IP matches, not CIDR containment
 -- The UNIQUE constraint index handles exact lookups more efficiently
 DROP INDEX IF EXISTS idx_rbl_cache_ip;
+
+-- Add composite index for fast getCached() queries
+-- This index covers the WHERE clause: ip = X AND rbl_host = Y AND expires_at > Z
+CREATE INDEX IF NOT EXISTS idx_rbl_cache_lookup ON rbl_cache(ip, rbl_host, expires_at);
 
 -- Verify remaining indexes
 -- You should see:

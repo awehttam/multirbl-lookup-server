@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS rbl_cache (
 
 -- Indexes for RBL cache performance
 -- Note: UNIQUE(ip, rbl_host) constraint creates an automatic B-tree index
--- which is optimal for exact lookups in getCached() queries
+-- Composite index for fast getCached() queries (ip, rbl_host, expires_at)
+CREATE INDEX IF NOT EXISTS idx_rbl_cache_lookup ON rbl_cache(ip, rbl_host, expires_at);
+-- Index for cleanup queries
 CREATE INDEX IF NOT EXISTS idx_rbl_cache_expires ON rbl_cache(expires_at);
 
 -- Custom RBL Configuration Table

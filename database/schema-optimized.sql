@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS rbl_cache (
 -- Indexes for RBL cache performance
 -- REMOVED: idx_rbl_cache_ip_rbl - redundant with UNIQUE constraint
 -- REMOVED: idx_rbl_cache_ip - GiST not needed for exact IP matches
+-- ADDED: Composite index for fast getCached() queries
+CREATE INDEX IF NOT EXISTS idx_rbl_cache_lookup ON rbl_cache(ip, rbl_host, expires_at);
 -- KEPT: expires_at index for cleanup queries
 CREATE INDEX IF NOT EXISTS idx_rbl_cache_expires ON rbl_cache(expires_at);
 
