@@ -13,7 +13,8 @@ class RBLDnsServer {
     this.host = config.host || '0.0.0.0';
     this.upstreamDns = config.upstreamDns || '8.8.8.8';
     this.multiRblDomain = config.multiRblDomain || 'multi-rbl.example.com';
-    this.server = null;
+    this.udpServer = null;
+    this.tcpServer = null;
     this.db = getDatabase();
     this.rblServers = [];
     this.rblServersList = []; // Array of all RBL servers
@@ -358,15 +359,11 @@ class RBLDnsServer {
   }
 
   /**
-   * Start the DNS server
+   * Attach event handlers to a DNS server (UDP or TCP)
    */
-  async start() {
-    await this.init();
-
-    this.server = dns.createServer();
-
-    this.server.on('request', (request, response) => {
-      console.log(`\n==> Received request from ${request.address.address}:${request.address.port}`);
+  attachServerHandlers(server, protocol) {
+    server.on('request', (request, response) => {
+      console.log(`\n==> Received ${protocol} request from ${request.address.address}:${request.address.port}`);
       this.handleQuery(request, response).catch(err => {
         console.error(`Error handling request: ${err.message}`);
         console.error(err.stack);
@@ -375,25 +372,43 @@ class RBLDnsServer {
       });
     });
 
-    this.server.on('error', (err) => {
-      console.error(`DNS Server error: ${err.message}`);
+    server.on('error', (err) => {
+      console.error(`DNS ${protocol} Server error: ${err.message}`);
       console.error(err.stack);
     });
 
-    this.server.on('listening', () => {
-      console.log(`DNS server is now listening`);
+    server.on('listening', () => {
+      console.log(`DNS ${protocol} server is now listening on ${this.host}:${this.port}`);
     });
 
-    this.server.on('socketError', (err, socket) => {
-      console.error(`Socket error: ${err.message}`);
+    server.on('socketError', (err, socket) => {
+      console.error(`${protocol} Socket error: ${err.message}`);
       console.error(err.stack);
     });
+  }
 
-    console.log(`Binding to ${this.host}:${this.port}...`);
-    this.server.serve(this.port, this.host);
+  /**
+   * Start the DNS server (both UDP and TCP)
+   */
+  async start() {
+    await this.init();
+
+    // Create UDP server
+    this.udpServer = dns.createUDPServer();
+    this.attachServerHandlers(this.udpServer, 'UDP');
+
+    // Create TCP server
+    this.tcpServer = dns.createTCPServer();
+    this.attachServerHandlers(this.tcpServer, 'TCP');
+
+    console.log(`Starting DNS servers on ${this.host}:${this.port}...`);
+
+    // Start both servers on the same port
+    this.udpServer.serve(this.port, this.host);
+    this.tcpServer.serve(this.port, this.host);
 
     console.log(`\nRBL DNS Server started`);
-    console.log(`  Listen: ${this.host}:${this.port}`);
+    console.log(`  Listen: ${this.host}:${this.port} (UDP + TCP)`);
     console.log(`  Upstream DNS: ${this.upstreamDns}`);
     console.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
     console.log(`  Cache: PostgreSQL database`);
@@ -427,12 +442,16 @@ class RBLDnsServer {
   }
 
   /**
-   * Stop the DNS server
+   * Stop the DNS servers (both UDP and TCP)
    */
   stop() {
-    if (this.server) {
-      this.server.close();
-      console.log('DNS server stopped');
+    if (this.udpServer) {
+      this.udpServer.close();
+      console.log('DNS UDP server stopped');
+    }
+    if (this.tcpServer) {
+      this.tcpServer.close();
+      console.log('DNS TCP server stopped');
     }
     if (this.db) {
       this.db.close();

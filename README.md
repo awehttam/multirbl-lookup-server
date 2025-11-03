@@ -408,7 +408,7 @@ FOOTER_HTML_FILE=/etc/multirbl/custom-footer.html npm start
 
 ### DNS Server
 
-Start the DNS server with intelligent caching:
+Start the DNS server with intelligent caching (supports both UDP and TCP):
 
 ```bash
 npm run dns-server
@@ -429,9 +429,14 @@ Options:
 
 **Testing Single RBL Lookups:**
 
-Using `dig`:
+Using `dig` (UDP):
 ```bash
 dig @localhost -p 8053 2.0.0.127.zen.spamhaus.org
+```
+
+Using `dig` (TCP):
+```bash
+dig @localhost -p 8053 +tcp 2.0.0.127.zen.spamhaus.org
 ```
 
 Using `nslookup`:
