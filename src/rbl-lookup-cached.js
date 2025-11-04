@@ -141,15 +141,17 @@ export async function lookupSingleRblWithCache(ip, rblServer, db, timeout = 5000
   // Not in cache or expired - do fresh lookup
   const result = await lookupSingleRbl(ip, rblServer, timeout);
 
-  // Cache the result
-  await db.cache(
+  // Cache the result (fire-and-forget, don't wait for it)
+  db.cache(
     ip,
     rblServer.host,
     result.listed === true,
     result.response,
     result.error,
     result.ttl
-  );
+  ).catch(err => {
+    console.error('Error caching result:', err.message);
+  });
 
   // Add fromCache flag
   result.fromCache = false;
