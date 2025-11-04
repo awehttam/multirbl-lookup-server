@@ -32,12 +32,41 @@ class RBLDnsServer {
     this.upstreamDns = config.upstreamDns || '8.8.8.8';
     this.multiRblDomain = config.multiRblDomain || 'multi-rbl.example.com';
     this.multiRblTimeout = parseInt(config.multiRblTimeout || process.env.DNS_MULTI_RBL_TIMEOUT || '250', 10);
+    this.logLevel = config.logLevel || process.env.DNS_LOG_LEVEL || 'info';
     this.udpServer = null;
     this.tcpServer = null;
     this.db = getDatabase();
     this.rblServers = [];
     this.rblServersList = []; // Array of all RBL servers
     this.customRblConfig = null; // Custom RBL configuration
+  }
+
+  /**
+   * Log message based on log level
+   * Levels: none, error, info, verbose
+   */
+  log(message, level = 'info') {
+    const levels = { none: 0, error: 1, info: 2, verbose: 3 };
+    const currentLevel = levels[this.logLevel] || levels.info;
+    const messageLevel = levels[level] || levels.info;
+
+    if (messageLevel <= currentLevel) {
+      console.log(message);
+    }
+  }
+
+  /**
+   * Log error message
+   */
+  logError(message) {
+    this.log(message, 'error');
+  }
+
+  /**
+   * Log verbose message (detailed query info)
+   */
+  logVerbose(message) {
+    this.log(message, 'verbose');
   }
 
   /**
@@ -55,7 +84,7 @@ class RBLDnsServer {
     // Load custom RBL configuration
     this.customRblConfig = await getCustomRblConfig();
     if (this.customRblConfig) {
-      console.log(`Custom RBL enabled: ${this.customRblConfig.zone_name}`);
+      this.log(`Custom RBL enabled: ${this.customRblConfig.zone_name}`);
       // Add custom RBL to the server map for DNS lookups
       this.rblServers[this.customRblConfig.zone_name] = {
         name: 'Custom RBL',
@@ -64,8 +93,8 @@ class RBLDnsServer {
       };
     }
 
-    console.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
-    console.log(`Multi-RBL lookup domain: ${this.multiRblDomain}`);
+    this.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
+    this.log(`Multi-RBL lookup domain: ${this.multiRblDomain}`);
   }
 
   /**
@@ -129,7 +158,7 @@ class RBLDnsServer {
    * Perform multi-RBL lookup for an IP with configurable timeout
    */
   async performMultiRblLookup(ip, response, queryName, queryType) {
-    console.log(`Multi-RBL lookup for ${ip} (${this.multiRblTimeout}ms timeout)`);
+    this.logVerbose(`Multi-RBL lookup for ${ip} (${this.multiRblTimeout}ms timeout)`);
     const startTime = Date.now();
 
     // Track completed results and cache statistics
@@ -176,10 +205,10 @@ class RBLDnsServer {
     if (raceResult === 'timeout') {
       // Timeout occurred - use whatever results have completed so far
       timedOut = true;
-      console.log(`  -> Timeout hit: ${completedResults.length} results completed (${cacheHits} cache hits, ${cacheMisses} DNS queries)`);
+      this.log(`  -> Timeout hit: ${completedResults.length} results completed (${cacheHits} cache hits, ${cacheMisses} DNS queries)`);
     } else {
       // All lookups completed within timeout
-      console.log(`  -> All ${settledCount} lookups completed within timeout (${cacheHits} cache hits, ${cacheMisses} DNS queries)`);
+      this.log(`  -> All ${settledCount} lookups completed within timeout (${cacheHits} cache hits, ${cacheMisses} DNS queries)`);
     }
 
     // Filter out null results (errors)
@@ -236,11 +265,11 @@ class RBLDnsServer {
         }));
       }
 
-      console.log(`  -> LISTED on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} completed in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
+      this.log(`  -> LISTED on ${listedCount}/${completedCount} RBLs (${completedCount}/${totalCount} completed in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
     } else {
       // Not listed on any RBL checked - respond with NXDOMAIN
       response.header.rcode = dns.consts.NAME_TO_RCODE.NOTFOUND;
-      console.log(`  -> NOT LISTED (${completedCount}/${totalCount} checked in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
+      this.log(`  -> NOT LISTED (${completedCount}/${totalCount} checked in ${elapsed}ms)${timedOut ? ' [TIMEOUT]' : ''}`);
     }
   }
 
@@ -252,23 +281,23 @@ class RBLDnsServer {
     const queryName = question.name;
     const queryType = question.type;
 
-    console.log(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)})`);
+    this.logVerbose(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)})`);
 
     // Check if this is a multi-RBL lookup query
     if (queryName.endsWith(`.${this.multiRblDomain}`)) {
       const ip = this.parseMultiRblIp(queryName);
       if (ip) {
         await this.performMultiRblLookup(ip, response, queryName, queryType);
-        console.log(`  -> Sending response...`);
+        this.logVerbose(`  -> Sending response...`);
         response.send();
-        console.log(`  -> Response sent`);
+        this.logVerbose(`  -> Response sent`);
         return;
       }
     }
 
     // Only handle A record queries for regular RBL lookups
     if (queryType !== dns.consts.NAME_TO_QTYPE.A) {
-      console.log(`Skipping non-A record query type: ${dns.consts.qtypeToName(queryType)}`);
+      this.logVerbose(`Skipping non-A record query type: ${dns.consts.qtypeToName(queryType)}`);
       return this.forwardQuery(request, response);
     }
 
@@ -293,13 +322,13 @@ class RBLDnsServer {
     }
 
     if (!isRblQuery || !ip) {
-      console.log(`Not an RBL query or invalid IP, forwarding: ${queryName}`);
+      this.logVerbose(`Not an RBL query or invalid IP, forwarding: ${queryName}`);
       return this.forwardQuery(request, response);
     }
 
     try {
       const rblServer = this.rblServers[rblHost];
-      console.log(`RBL query for ${ip} against ${rblServer.name}${isCustomRbl ? ' [CUSTOM]' : ''}`);
+      this.logVerbose(`RBL query for ${ip} against ${rblServer.name}${isCustomRbl ? ' [CUSTOM]' : ''}`);
 
       let result;
 
@@ -335,24 +364,24 @@ class RBLDnsServer {
         }
 
         const cacheInfo = result.fromCache ? `[CACHED:${result.cacheSource || 'unknown'}]` : '[DNS]';
-        console.log(`  -> LISTED (${responseIp})${isCustomRbl ? ` [${result.reason || 'No reason'}]` : ''} ${cacheInfo}`);
+        this.logVerbose(`  -> LISTED (${responseIp})${isCustomRbl ? ` [${result.reason || 'No reason'}]` : ''} ${cacheInfo}`);
       } else if (result.error) {
         // Error occurred - respond with SERVFAIL
         const cacheInfo = result.fromCache ? `[CACHED:${result.cacheSource || 'unknown'}]` : '[DNS]';
-        console.log(`  -> ERROR: ${result.error} ${cacheInfo}`);
+        this.logVerbose(`  -> ERROR: ${result.error} ${cacheInfo}`);
         response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
       } else {
         // Not listed - respond with NXDOMAIN
         const cacheInfo = result.fromCache ? `[CACHED:${result.cacheSource || 'unknown'}]` : '[DNS]';
-        console.log(`  -> NOT LISTED ${cacheInfo}`);
+        this.logVerbose(`  -> NOT LISTED ${cacheInfo}`);
         response.header.rcode = dns.consts.NAME_TO_RCODE.NOTFOUND;
       }
 
-      console.log(`  -> Sending response...`);
+      this.logVerbose(`  -> Sending response...`);
       response.send();
-      console.log(`  -> Response sent`);
+      this.logVerbose(`  -> Response sent`);
     } catch (error) {
-      console.error(`Error handling query: ${error.message}`);
+      this.logError(`Error handling query: ${error.message}`);
       response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
       response.send();
     }
@@ -372,7 +401,7 @@ class RBLDnsServer {
 
     upstreamRequest.on('message', (err, msg) => {
       if (err) {
-        console.error(`Upstream DNS error: ${err.message}`);
+        this.logError(`Upstream DNS error: ${err.message}`);
         response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
         response.send();
         return;
@@ -394,27 +423,27 @@ class RBLDnsServer {
    */
   attachServerHandlers(server, protocol) {
     server.on('request', (request, response) => {
-      console.log(`\n==> Received ${protocol} request from ${request.address.address}:${request.address.port}`);
+      this.logVerbose(`\n==> Received ${protocol} request from ${request.address.address}:${request.address.port}`);
       this.handleQuery(request, response).catch(err => {
-        console.error(`Error handling request: ${err.message}`);
-        console.error(err.stack);
+        this.logError(`Error handling request: ${err.message}`);
+        this.logError(err.stack);
         response.header.rcode = dns.consts.NAME_TO_RCODE.SERVFAIL;
         response.send();
       });
     });
 
     server.on('error', (err) => {
-      console.error(`DNS ${protocol} Server error: ${err.message}`);
-      console.error(err.stack);
+      this.logError(`DNS ${protocol} Server error: ${err.message}`);
+      this.logError(err.stack);
     });
 
     server.on('listening', () => {
-      console.log(`DNS ${protocol} server is now listening on ${this.host}:${this.port}`);
+      this.log(`DNS ${protocol} server is now listening on ${this.host}:${this.port}`);
     });
 
     server.on('socketError', (err, socket) => {
-      console.error(`${protocol} Socket error: ${err.message}`);
-      console.error(err.stack);
+      this.logError(`${protocol} Socket error: ${err.message}`);
+      this.logError(err.stack);
     });
   }
 
@@ -432,44 +461,45 @@ class RBLDnsServer {
     this.tcpServer = dns.createTCPServer();
     this.attachServerHandlers(this.tcpServer, 'TCP');
 
-    console.log(`Starting DNS servers on ${this.host}:${this.port}...`);
+    this.log(`Starting DNS servers on ${this.host}:${this.port}...`);
 
     // Start both servers on the same port
     this.udpServer.serve(this.port, this.host);
     this.tcpServer.serve(this.port, this.host);
 
-    console.log(`\nRBL DNS Server started`);
-    console.log(`  Listen: ${this.host}:${this.port} (UDP + TCP)`);
-    console.log(`  Upstream DNS: ${this.upstreamDns}`);
-    console.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
-    console.log(`  Multi-RBL Timeout: ${this.multiRblTimeout}ms`);
-    console.log(`  Cache: PostgreSQL database`);
+    this.log(`\nRBL DNS Server started`);
+    this.log(`  Listen: ${this.host}:${this.port} (UDP + TCP)`);
+    this.log(`  Upstream DNS: ${this.upstreamDns}`);
+    this.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
+    this.log(`  Multi-RBL Timeout: ${this.multiRblTimeout}ms`);
+    this.log(`  Log Level: ${this.logLevel}`);
+    this.log(`  Cache: PostgreSQL database`);
     if (this.customRblConfig) {
-      console.log(`  Custom RBL: ${this.customRblConfig.zone_name}`);
+      this.log(`  Custom RBL: ${this.customRblConfig.zone_name}`);
     }
-    console.log(`\nTo test single RBL:`);
-    console.log(`  dig @localhost -p ${this.port} 2.0.0.127.zen.spamhaus.org`);
+    this.log(`\nTo test single RBL:`);
+    this.log(`  dig @localhost -p ${this.port} 2.0.0.127.zen.spamhaus.org`);
     if (this.customRblConfig) {
-      console.log(`\nTo test custom RBL:`);
-      console.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name}`);
-      console.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name} TXT`);
+      this.log(`\nTo test custom RBL:`);
+      this.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name}`);
+      this.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name} TXT`);
     }
-    console.log(`\nTo test multi-RBL lookup:`);
-    console.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain}`);
-    console.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain} TXT\n`);
+    this.log(`\nTo test multi-RBL lookup:`);
+    this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain}`);
+    this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain} TXT\n`);
 
     // Clean expired cache entries every 5 minutes
     setInterval(async () => {
       const deleted = await this.db.cleanExpired();
       if (deleted > 0) {
-        console.log(`Cleaned ${deleted} expired cache entries`);
+        this.log(`Cleaned ${deleted} expired cache entries`);
       }
     }, 5 * 60 * 1000);
 
     // Log cache stats every hour
     setInterval(async () => {
       const stats = await this.db.getStats();
-      console.log(`Cache stats: ${stats.valid} valid, ${stats.expired} expired, ${stats.total} total`);
+      this.log(`Cache stats: ${stats.valid} valid, ${stats.expired} expired, ${stats.total} total`);
     }, 60 * 60 * 1000);
   }
 
