@@ -35,3 +35,6 @@ yarn-error.log*
 # Custom HTML includes (examples are tracked)
 public_html/header.html
 public_html/footer.html
+
+# DNS access control configuration (example is tracked)
+etc/dns-access-control.json

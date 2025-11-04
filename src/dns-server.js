@@ -23,6 +23,7 @@ import { lookupSingleRblWithCache } from './rbl-lookup-cached.js';
 import { getDatabase } from './cache-db.js';
 import { getRblServers } from './rbl-lookup.js';
 import { getCustomRblConfig, checkCustomRbl } from './custom-rbl-lookup.js';
+import { isIpAllowed, isValidCidr } from './ip-network-utils.js';
 
 /**
  * DNS Server for RBL lookups with caching
@@ -42,6 +43,7 @@ class RBLDnsServer {
     this.rblServersList = []; // Array of all RBL servers
     this.customRblConfig = null; // Custom RBL configuration
     this.multiRblZones = []; // Array of multi-RBL zone configurations
+    this.accessControl = { enabled: false, allowedNetworks: [] }; // Access control configuration
   }
 
   /**
@@ -99,8 +101,60 @@ class RBLDnsServer {
     // Load multi-RBL zones configuration
     await this.loadMultiRblZones();
 
+    // Load access control configuration
+    await this.loadAccessControl();
+
     this.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
     this.log(`Loaded ${this.multiRblZones.length} multi-RBL zone(s)`);
+  }
+
+  /**
+   * Load access control configuration from file
+   */
+  async loadAccessControl() {
+    const configPath = join(process.cwd(), 'etc', 'dns-access-control.json');
+    try {
+      const data = await readFile(configPath, 'utf8');
+      const config = JSON.parse(data);
+
+      this.accessControl.enabled = config.enabled || false;
+      this.accessControl.allowedNetworks = config.allowedNetworks || [];
+
+      if (this.accessControl.enabled) {
+        // Validate all CIDR entries
+        const validNetworks = [];
+        const invalidNetworks = [];
+
+        for (const cidr of this.accessControl.allowedNetworks) {
+          if (isValidCidr(cidr)) {
+            validNetworks.push(cidr);
+          } else {
+            invalidNetworks.push(cidr);
+          }
+        }
+
+        this.accessControl.allowedNetworks = validNetworks;
+
+        if (invalidNetworks.length > 0) {
+          this.logError(`Invalid CIDR entries in access control config: ${invalidNetworks.join(', ')}`);
+        }
+
+        this.log(`Access control enabled: ${validNetworks.length} network(s) allowed`);
+        for (const network of validNetworks) {
+          this.log(`  - ${network}`);
+        }
+      } else {
+        this.log('Access control disabled (all IPs allowed)');
+      }
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        this.log('No access control config found - all IPs allowed');
+      } else {
+        this.logError(`Error loading access control config: ${error.message}`);
+      }
+      this.accessControl.enabled = false;
+      this.accessControl.allowedNetworks = [];
+    }
   }
 
   /**
@@ -325,8 +379,19 @@ class RBLDnsServer {
     const question = request.question[0];
     const queryName = question.name;
     const queryType = question.type;
+    const clientIp = request.address.address;
 
-    this.logVerbose(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)})`);
+    this.logVerbose(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)}) from ${clientIp}`);
+
+    // Check access control
+    if (this.accessControl.enabled) {
+      if (!isIpAllowed(clientIp, this.accessControl.allowedNetworks)) {
+        this.log(`Access denied for ${clientIp} - not in allowed networks`);
+        response.header.rcode = dns.consts.NAME_TO_RCODE.REFUSED;
+        response.send();
+        return;
+      }
+    }
 
     // Check if this is a multi-RBL lookup query for any configured zone
     let matchedZone = null;
@@ -533,6 +598,11 @@ class RBLDnsServer {
     this.log(`  Cache: PostgreSQL database`);
     if (this.customRblConfig) {
       this.log(`  Custom RBL: ${this.customRblConfig.zone_name}`);
+    }
+    if (this.accessControl.enabled) {
+      this.log(`  Access Control: ENABLED (${this.accessControl.allowedNetworks.length} network(s) allowed)`);
+    } else {
+      this.log(`  Access Control: DISABLED (all IPs allowed)`);
     }
     this.log(`\nTo test single RBL:`);
     this.log(`  dig @localhost -p ${this.port} 2.0.0.127.zen.spamhaus.org`);

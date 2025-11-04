@@ -1,0 +1,30 @@
+{
+  "enabled": false,
+  "description": "DNS server access control - restrict queries to specific IP networks",
+  "allowedNetworks": [
+    "192.168.0.0/16",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "127.0.0.1/32",
+    "2001:db8::/32",
+    "::1/128"
+  ],
+  "notes": [
+    "Set 'enabled' to true to activate access control",
+    "If enabled, only IPs matching allowedNetworks can query the DNS server",
+    "If enabled is false or this file doesn't exist, all IPs can query (default behavior)",
+    "Supports both IPv4 and IPv6 CIDR notation",
+    "Examples:",
+    "  - 192.168.1.0/24 = subnet 192.168.1.0 through 192.168.1.255",
+    "  - 10.0.0.0/8 = entire 10.x.x.x network",
+    "  - 203.0.113.5/32 = single IPv4 address",
+    "  - 2001:db8::/32 = IPv6 network",
+    "  - ::1/128 = single IPv6 address (localhost)",
+    "",
+    "To use this configuration:",
+    "  1. Copy this file to etc/dns-access-control.json",
+    "  2. Edit the allowedNetworks list to match your network",
+    "  3. Set enabled to true",
+    "  4. Restart the DNS server"
+  ]
+}

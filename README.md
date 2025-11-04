@@ -31,6 +31,7 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 - [Configuration](#configuration)
   - [RBL Server Configuration](#rbl-server-configuration)
   - [Multi-RBL Zone Configuration](#multi-rbl-zone-configuration)
+  - [DNS Access Control Configuration](#dns-access-control-configuration)
 - [Development](#development)
 - [Running as a Daemon](#running-as-a-daemon)
   - [Using PM2](#using-pm2-recommended-for-all-platforms)
@@ -68,6 +69,7 @@ multirbl-lookup/
 │   ├── db-postgres.js             # PostgreSQL connection pool
 │   ├── custom-rbl-lookup.js       # Custom RBL CIDR matching
 │   ├── auth-middleware.js         # API key authentication
+│   ├── ip-network-utils.js        # IP/CIDR validation and matching utilities
 │   ├── dns-server.js              # DNS server implementation
 │   ├── start-dns-server.js        # DNS server CLI
 │   ├── server.js                  # Express API server
@@ -82,8 +84,9 @@ multirbl-lookup/
 │   ├── styles.css                 # Styling
 │   └── app.js                     # Frontend JavaScript
 ├── etc/
-│   ├── rbl-servers.json           # 40+ RBL server configurations
-│   └── multi-rbl-zones.json       # Multi-RBL zone configurations (optional)
+│   ├── rbl-servers.json                  # 40+ RBL server configurations
+│   ├── multi-rbl-zones.json              # Multi-RBL zone configurations (optional)
+│   └── dns-access-control.example.json   # DNS access control example
 ├── logs/
 │   └── requests.log               # Request logs (auto-created)
 ├── rbl-cli.php                    # PHP CLI with custom RBL commands
@@ -1733,6 +1736,56 @@ Multi-RBL zones are optionally configured in `etc/multi-rbl-zones.json`. Each zo
 - If this file doesn't exist, the server uses the single domain from `DNS_MULTI_RBL_DOMAIN` in `.env`
 - The RBL hosts in the `rbls` array must match the `host` values in `etc/rbl-servers.json`
 - Multiple zones allow you to create fast, targeted checks (e.g., Spamhaus-only) alongside comprehensive checks
+
+### DNS Access Control Configuration
+
+The DNS server supports optional IP-based access control to restrict which networks can query the server. This is configured in `etc/dns-access-control.json`.
+
+**To enable access control:**
+
+1. Copy the example configuration:
+```bash
+cp etc/dns-access-control.example.json etc/dns-access-control.json
+```
+
+2. Edit `etc/dns-access-control.json`:
+```json
+{
+  "enabled": true,
+  "description": "DNS server access control - restrict queries to specific IP networks",
+  "allowedNetworks": [
+    "192.168.0.0/16",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "127.0.0.1/32",
+    "2001:db8::/32",
+    "::1/128"
+  ]
+}
+```
+
+3. Restart the DNS server
+
+**Configuration Options:**
+- `enabled`: Set to `true` to activate access control, `false` to allow all IPs (default)
+- `allowedNetworks`: Array of CIDR network ranges (supports both IPv4 and IPv6)
+
+**Behavior:**
+- When `enabled` is `false` or the file doesn't exist: All IPs can query (default behavior)
+- When `enabled` is `true`: Only IPs matching the `allowedNetworks` can query
+- Denied queries receive a DNS REFUSED response
+
+**CIDR Examples:**
+- `192.168.1.0/24` - Subnet 192.168.1.0 through 192.168.1.255
+- `10.0.0.0/8` - Entire 10.x.x.x network
+- `203.0.113.5/32` - Single IPv4 address
+- `2001:db8::/32` - IPv6 network
+- `::1/128` - Single IPv6 address (localhost)
+
+**Notes:**
+- The configuration file is excluded from git (only the example is tracked)
+- Invalid CIDR entries are logged but won't crash the server
+- Access control status is shown when the DNS server starts
 
 ## Development
 
