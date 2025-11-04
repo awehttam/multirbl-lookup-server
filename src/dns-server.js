@@ -17,6 +17,8 @@
  */
 
 import dns from 'native-dns';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { lookupSingleRblWithCache } from './rbl-lookup-cached.js';
 import { getDatabase } from './cache-db.js';
 import { getRblServers } from './rbl-lookup.js';
@@ -39,6 +41,7 @@ class RBLDnsServer {
     this.rblServers = [];
     this.rblServersList = []; // Array of all RBL servers
     this.customRblConfig = null; // Custom RBL configuration
+    this.multiRblZones = []; // Array of multi-RBL zone configurations
   }
 
   /**
@@ -93,8 +96,43 @@ class RBLDnsServer {
       };
     }
 
+    // Load multi-RBL zones configuration
+    await this.loadMultiRblZones();
+
     this.log(`Loaded ${Object.keys(this.rblServers).length} RBL servers`);
-    this.log(`Multi-RBL lookup domain: ${this.multiRblDomain}`);
+    this.log(`Loaded ${this.multiRblZones.length} multi-RBL zone(s)`);
+  }
+
+  /**
+   * Load multi-RBL zones configuration from file
+   */
+  async loadMultiRblZones() {
+    const configPath = join(process.cwd(), 'etc', 'multi-rbl-zones.json');
+    try {
+      const data = await readFile(configPath, 'utf8');
+      const config = JSON.parse(data);
+      this.multiRblZones = config.zones || [];
+
+      // Validate and log each zone
+      for (const zone of this.multiRblZones) {
+        const rblCount = zone.rbls === '*' ? 'all' : zone.rbls.length;
+        this.log(`  Zone: ${zone.domain} (${rblCount} RBLs) - ${zone.description || 'No description'}`);
+      }
+    } catch (error) {
+      // Fall back to single domain from config if file doesn't exist
+      if (error.code === 'ENOENT') {
+        this.log('No multi-RBL zones config found, using legacy single domain');
+      } else {
+        this.logError(`Error loading multi-RBL zones config: ${error.message}`);
+      }
+
+      // Create default zone using legacy config
+      this.multiRblZones = [{
+        domain: this.multiRblDomain,
+        description: 'Default multi-RBL zone (all RBLs)',
+        rbls: '*'
+      }];
+    }
   }
 
   /**
@@ -128,13 +166,13 @@ class RBLDnsServer {
    * Parse IP from multi-RBL domain query
    * e.g., "2.0.0.127.multi-rbl.example.com" -> "127.0.0.2"
    */
-  parseMultiRblIp(query) {
+  parseMultiRblIp(query, domain) {
     // Remove the multi-RBL domain from the query
-    if (!query.endsWith(`.${this.multiRblDomain}`)) {
+    if (!query.endsWith(`.${domain}`)) {
       return null;
     }
 
-    const prefix = query.replace(`.${this.multiRblDomain}`, '');
+    const prefix = query.replace(`.${domain}`, '');
     const parts = prefix.split('.');
 
     // Validate that we have 4 octets
@@ -157,8 +195,8 @@ class RBLDnsServer {
   /**
    * Perform multi-RBL lookup for an IP with configurable timeout
    */
-  async performMultiRblLookup(ip, response, queryName, queryType) {
-    this.logVerbose(`Multi-RBL lookup for ${ip} (${this.multiRblTimeout}ms timeout)`);
+  async performMultiRblLookup(ip, response, queryName, queryType, zoneConfig) {
+    this.logVerbose(`Multi-RBL lookup for ${ip} on zone ${zoneConfig.domain} (${this.multiRblTimeout}ms timeout)`);
     const startTime = Date.now();
 
     // Track completed results and cache statistics
@@ -167,8 +205,15 @@ class RBLDnsServer {
     let cacheHits = 0;
     let cacheMisses = 0;
 
+    // Filter RBL list based on zone configuration
+    const rblsToCheck = zoneConfig.rbls === '*'
+      ? this.rblServersList
+      : this.rblServersList.filter(server => zoneConfig.rbls.includes(server.host));
+
+    this.logVerbose(`Checking ${rblsToCheck.length} RBLs for this zone`);
+
     // Start all RBL lookups concurrently and track completions
-    const lookupPromises = this.rblServersList.map(async (server) => {
+    const lookupPromises = rblsToCheck.map(async (server) => {
       try {
         const result = await lookupSingleRblWithCache(ip, server, this.db);
         completedResults.push(result);
@@ -217,7 +262,7 @@ class RBLDnsServer {
 
     // Count listed servers
     const listedCount = results.filter(r => r.listed).length;
-    const totalCount = this.rblServersList.length;
+    const totalCount = rblsToCheck.length;
 
     response.header.qr = 1; // This is a response
     response.header.aa = 1; // Authoritative answer
@@ -283,11 +328,19 @@ class RBLDnsServer {
 
     this.logVerbose(`Query: ${queryName} (${dns.consts.qtypeToName(queryType)})`);
 
-    // Check if this is a multi-RBL lookup query
-    if (queryName.endsWith(`.${this.multiRblDomain}`)) {
-      const ip = this.parseMultiRblIp(queryName);
+    // Check if this is a multi-RBL lookup query for any configured zone
+    let matchedZone = null;
+    for (const zone of this.multiRblZones) {
+      if (queryName.endsWith(`.${zone.domain}`)) {
+        matchedZone = zone;
+        break;
+      }
+    }
+
+    if (matchedZone) {
+      const ip = this.parseMultiRblIp(queryName, matchedZone.domain);
       if (ip) {
-        await this.performMultiRblLookup(ip, response, queryName, queryType);
+        await this.performMultiRblLookup(ip, response, queryName, queryType, matchedZone);
         this.logVerbose(`  -> Sending response...`);
         response.send();
         this.logVerbose(`  -> Response sent`);
@@ -470,7 +523,11 @@ class RBLDnsServer {
     this.log(`\nRBL DNS Server started`);
     this.log(`  Listen: ${this.host}:${this.port} (UDP + TCP)`);
     this.log(`  Upstream DNS: ${this.upstreamDns}`);
-    this.log(`  Multi-RBL Domain: ${this.multiRblDomain}`);
+    this.log(`  Multi-RBL Zones: ${this.multiRblZones.length} zone(s)`);
+    for (const zone of this.multiRblZones) {
+      const rblCount = zone.rbls === '*' ? 'all' : zone.rbls.length;
+      this.log(`    - ${zone.domain} (${rblCount} RBLs)`);
+    }
     this.log(`  Multi-RBL Timeout: ${this.multiRblTimeout}ms`);
     this.log(`  Log Level: ${this.logLevel}`);
     this.log(`  Cache: PostgreSQL database`);
@@ -485,8 +542,10 @@ class RBLDnsServer {
       this.log(`  dig @localhost -p ${this.port} 1.2.3.4.${this.customRblConfig.zone_name} TXT`);
     }
     this.log(`\nTo test multi-RBL lookup:`);
-    this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain}`);
-    this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${this.multiRblDomain} TXT\n`);
+    for (const zone of this.multiRblZones) {
+      this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${zone.domain}`);
+      this.log(`  dig @localhost -p ${this.port} 2.0.0.127.${zone.domain} TXT`);
+    }
 
     // Clean expired cache entries every 5 minutes
     setInterval(async () => {

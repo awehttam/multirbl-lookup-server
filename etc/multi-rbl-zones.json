@@ -1,0 +1,34 @@
+{
+  "zones": [
+    {
+      "domain": "multi-rbl.example.com",
+      "description": "All RBLs (comprehensive check)",
+      "rbls": "*"
+    },
+    {
+      "domain": "major-rbls.example.com",
+      "description": "Major/most reliable RBLs only",
+      "rbls": [
+        "zen.spamhaus.org",
+        "sbl.spamhaus.org",
+        "xbl.spamhaus.org",
+        "pbl.spamhaus.org",
+        "cbl.abuseat.org",
+        "bl.spamcop.net",
+        "psbl.surriel.com",
+        "dnsbl.sorbs.net",
+        "b.barracudacentral.org"
+      ]
+    },
+    {
+      "domain": "spamhaus.example.com",
+      "description": "Spamhaus lists only",
+      "rbls": [
+        "zen.spamhaus.org",
+        "sbl.spamhaus.org",
+        "xbl.spamhaus.org",
+        "pbl.spamhaus.org"
+      ]
+    }
+  ]
+}
