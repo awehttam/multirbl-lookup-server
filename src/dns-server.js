@@ -131,15 +131,27 @@ class RBLDnsServer {
     console.log(`Multi-RBL lookup for ${ip} (250ms timeout)`);
     const startTime = Date.now();
 
+    // Track completed results
+    const completedResults = [];
+    let settledCount = 0;
+
+    // Start all RBL lookups concurrently and track completions
+    const lookupPromises = this.rblServersList.map(async (server) => {
+      try {
+        const result = await lookupSingleRblWithCache(ip, server, this.db);
+        completedResults.push(result);
+        settledCount++;
+        return result;
+      } catch (error) {
+        settledCount++;
+        return null;
+      }
+    });
+
     // Create a timeout promise that resolves after 250ms
     const timeoutPromise = new Promise((resolve) => {
       setTimeout(() => resolve('timeout'), 250);
     });
-
-    // Start all RBL lookups concurrently
-    const lookupPromises = this.rblServersList.map(server =>
-      lookupSingleRblWithCache(ip, server, this.db)
-    );
 
     // Race between all lookups completing and the 250ms timeout
     const raceResult = await Promise.race([
@@ -148,33 +160,20 @@ class RBLDnsServer {
     ]);
 
     const elapsed = Date.now() - startTime;
-    let results = [];
-    let completedCount = 0;
     let timedOut = false;
 
     if (raceResult === 'timeout') {
-      // Timeout occurred - collect results that have completed so far
+      // Timeout occurred - use whatever results have completed so far
       timedOut = true;
-      // Wait a tiny bit more for any results that finished just as timeout hit
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      // Use allSettled to get whatever completed
-      const settledResults = await Promise.allSettled(
-        lookupPromises.map(p => Promise.race([p, Promise.resolve(null)]))
-      );
-
-      results = settledResults
-        .filter(r => r.status === 'fulfilled' && r.value !== null)
-        .map(r => r.value);
-
-      completedCount = results.length;
+      console.log(`  -> Timeout hit: ${completedResults.length} results completed`);
     } else {
       // All lookups completed within timeout
-      results = raceResult
-        .filter(r => r.status === 'fulfilled')
-        .map(r => r.value);
-      completedCount = results.length;
+      console.log(`  -> All ${settledCount} lookups completed within timeout`);
     }
+
+    // Filter out null results (errors)
+    const results = completedResults.filter(r => r !== null);
+    const completedCount = results.length;
 
     // Count listed servers
     const listedCount = results.filter(r => r.listed).length;
