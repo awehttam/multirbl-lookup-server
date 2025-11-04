@@ -20,9 +20,70 @@ import dns from 'dns/promises';
 
 /**
  * Reverse an IP address for RBL lookup
+ * For IPv4: 192.0.2.1 becomes 1.2.0.192
+ * For IPv6: expands and reverses nibbles
  */
 function reverseIp(ip) {
+  // Check if IPv6
+  if (ip.includes(':')) {
+    // Expand IPv6 address to full form and reverse nibbles
+    const expanded = expandIPv6(ip);
+    return expanded.replace(/:/g, '').split('').reverse().join('.');
+  }
+  // IPv4
   return ip.split('.').reverse().join('.');
+}
+
+/**
+ * Expand IPv6 address to full form
+ */
+function expandIPv6(ip) {
+  // Handle :: shorthand
+  if (ip.includes('::')) {
+    const parts = ip.split('::');
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    const middle = Array(missing).fill('0000');
+    const full = [...left, ...middle, ...right];
+    ip = full.join(':');
+  }
+
+  // Expand each segment to 4 digits
+  return ip.split(':').map(seg => seg.padStart(4, '0')).join(':');
+}
+
+/**
+ * Validate IPv4 address
+ */
+function isValidIpv4(ip) {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (!ipv4Regex.test(ip)) {
+    return false;
+  }
+
+  const parts = ip.split('.');
+  return parts.every(part => {
+    const num = parseInt(part, 10);
+    return num >= 0 && num <= 255;
+  });
+}
+
+/**
+ * Validate IPv6 address
+ */
+function isValidIpv6(ip) {
+  // IPv6 regex pattern
+  const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+
+  return ipv6Regex.test(ip);
+}
+
+/**
+ * Validate IP address (IPv4 or IPv6)
+ */
+function isValidIp(ip) {
+  return isValidIpv4(ip) || isValidIpv6(ip);
 }
 
 /**
@@ -172,6 +233,11 @@ export async function loadRblServers() {
  * Lookup IP against multiple RBL servers with caching
  */
 export async function lookupIpCached(ip, db, onProgress = null) {
+  // Validate IP address first
+  if (!isValidIp(ip)) {
+    throw new Error('Invalid IP address (must be valid IPv4 or IPv6)');
+  }
+
   const rblServers = await loadRblServers();
   const results = [];
 
