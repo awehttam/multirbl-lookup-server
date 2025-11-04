@@ -69,7 +69,8 @@ async function handleLookup(e) {
 
     // Reset UI
     hideError();
-    resultsSection.classList.add('hidden');
+    resultsSection.classList.remove('hidden');
+    resultsContainer.innerHTML = '';
     progressBar.classList.remove('hidden');
     lookupBtn.disabled = true;
     lookupBtn.textContent = 'Looking up...';
@@ -77,9 +78,15 @@ async function handleLookup(e) {
     currentFilter = 'all';
     document.querySelector('.tab-btn[data-filter="all"]').click();
 
+    // Reset summary counts
+    listedCount.textContent = '0';
+    notListedCount.textContent = '0';
+    errorCountEl.textContent = '0';
+    totalCount.textContent = '0';
+
     try {
-        // Use regular API endpoint
-        const response = await fetch('/api/lookup', {
+        // Use Server-Sent Events for real-time updates
+        const response = await fetch('/api/lookup-stream', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -87,23 +94,90 @@ async function handleLookup(e) {
             body: JSON.stringify({ ip })
         });
 
-        const data = await response.json();
-
-        if (data.success) {
-            allResults = data.data.results;
-            displayResults(data.data);
-        } else {
+        if (!response.ok) {
+            const data = await response.json();
             showError(data.error || 'Lookup failed');
+            return;
+        }
+
+        // Read the stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) break;
+
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete messages (separated by \n\n)
+            const messages = buffer.split('\n\n');
+            buffer = messages.pop(); // Keep incomplete message in buffer
+
+            for (const message of messages) {
+                if (!message.trim() || !message.startsWith('data: ')) continue;
+
+                const jsonData = message.substring(6); // Remove 'data: ' prefix
+
+                try {
+                    const event = JSON.parse(jsonData);
+
+                    if (event.type === 'result') {
+                        // Add result to list
+                        allResults.push(event.result);
+
+                        // Update progress
+                        updateProgress(event.progress.current, event.progress.total);
+
+                        // Update summary counts
+                        const listed = allResults.filter(r => r.listed === true).length;
+                        const notListed = allResults.filter(r => r.listed === false && !r.error).length;
+                        const errors = allResults.filter(r => r.error).length;
+
+                        listedCount.textContent = listed;
+                        notListedCount.textContent = notListed;
+                        errorCountEl.textContent = errors;
+                        totalCount.textContent = allResults.length;
+
+                        // Add result to DOM if it matches current filter
+                        if (shouldShowResult(event.result)) {
+                            const item = createResultItem(event.result);
+                            resultsContainer.appendChild(item);
+                        }
+                    } else if (event.type === 'complete') {
+                        // Lookup complete
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '100%';
+                    } else if (event.type === 'error') {
+                        showError(event.error);
+                    }
+                } catch (parseError) {
+                    console.error('Failed to parse SSE message:', parseError);
+                }
+            }
         }
     } catch (error) {
         showError('Network error: ' + error.message);
     } finally {
-        progressBar.classList.add('hidden');
-        progressFill.style.width = '0%';
-        progressText.textContent = '0%';
+        setTimeout(() => {
+            progressBar.classList.add('hidden');
+            progressFill.style.width = '0%';
+            progressText.textContent = '0%';
+        }, 500);
         lookupBtn.disabled = false;
         lookupBtn.textContent = 'Lookup';
     }
+}
+
+function shouldShowResult(result) {
+    if (currentFilter === 'all') return true;
+    if (currentFilter === 'listed') return result.listed === true;
+    if (currentFilter === 'clean') return result.listed === false && !result.error;
+    if (currentFilter === 'error') return result.error !== null;
+    return true;
 }
 
 function displayResults(data) {
