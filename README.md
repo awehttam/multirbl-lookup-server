@@ -43,6 +43,7 @@ A comprehensive RBL (Real-time Blackhole List) lookup tool with web interface, D
 - **DNS Server**: RFC-compliant DNS server with intelligent two-tier caching
 - **Custom RBL**: Self-managed blocklist with CIDR range support (IPv4/IPv6)
 - **Multi-RBL Lookup**: Query all RBLs at once via DNS with 250ms timeout
+- **Multi-Zone Support**: Configure multiple DNS zones with different RBL sets for targeted checks
 - **Web Interface**: Modern, responsive web UI with real-time updates
 - **CLI Tool**: PHP command-line tool with formatted table output and custom RBL management
 - **Two-Tier Caching**: Optional memcache (L1 ~0.1ms) + PostgreSQL (L2 ~1-5ms)
@@ -78,7 +79,8 @@ multirbl-lookup/
 │   ├── styles.css                 # Styling
 │   └── app.js                     # Frontend JavaScript
 ├── etc/
-│   └── rbl-servers.json           # 40+ RBL server configurations
+│   ├── rbl-servers.json           # 40+ RBL server configurations
+│   └── multi-rbl-zones.json       # Multi-RBL zone configurations (optional)
 ├── logs/
 │   └── requests.log               # Request logs (auto-created)
 ├── rbl-cli.php                    # PHP CLI with custom RBL commands
@@ -663,6 +665,70 @@ Custom multi-RBL domain:
 node src/start-dns-server.js --multi-rbl-domain=check.example.org
 dig @localhost -p 8053 8.8.8.8.check.example.org TXT
 ```
+
+**Configuring Multiple Multi-RBL Zones:**
+
+The DNS server supports multiple custom multi-RBL zones, each checking different sets of RBLs. This is configured via `etc/multi-rbl-zones.json`:
+
+```json
+{
+  "zones": [
+    {
+      "domain": "multi-rbl.example.com",
+      "description": "All RBLs (comprehensive check)",
+      "rbls": "*"
+    },
+    {
+      "domain": "major-rbls.example.com",
+      "description": "Major/most reliable RBLs only",
+      "rbls": [
+        "zen.spamhaus.org",
+        "sbl.spamhaus.org",
+        "xbl.spamhaus.org",
+        "pbl.spamhaus.org",
+        "cbl.abuseat.org",
+        "bl.spamcop.net",
+        "psbl.surriel.com",
+        "dnsbl.sorbs.net",
+        "b.barracudacentral.org"
+      ]
+    },
+    {
+      "domain": "spamhaus.example.com",
+      "description": "Spamhaus lists only",
+      "rbls": [
+        "zen.spamhaus.org",
+        "sbl.spamhaus.org",
+        "xbl.spamhaus.org",
+        "pbl.spamhaus.org"
+      ]
+    }
+  ]
+}
+```
+
+Each zone can:
+- Use `"rbls": "*"` to check against all RBL servers
+- Specify an array of specific RBL hosts to check
+- Have its own domain name for querying
+
+Query different zones:
+```bash
+# Check against all RBLs (slower, comprehensive)
+dig @localhost -p 8053 2.0.0.127.multi-rbl.example.com TXT
+
+# Check against major RBLs only (faster)
+dig @localhost -p 8053 2.0.0.127.major-rbls.example.com TXT
+
+# Check Spamhaus only (fastest, most authoritative)
+dig @localhost -p 8053 2.0.0.127.spamhaus.example.com TXT
+```
+
+**Notes:**
+- If `etc/multi-rbl-zones.json` doesn't exist, the server falls back to the single domain specified by `DNS_MULTI_RBL_DOMAIN` in `.env`
+- Zone configurations are loaded at server startup
+- Each zone's queries are cached independently
+- Using targeted zones can significantly improve response times for specific use cases
 
 **Cache Management:**
 
@@ -1518,18 +1584,27 @@ The tool checks against 40+ RBL servers including:
 
 ### Multi-RBL Lookup Flow
 
-When a query matches the multi-RBL domain (e.g., `2.0.0.127.multi-rbl.example.com`):
+When a query matches any configured multi-RBL zone domain (e.g., `2.0.0.127.multi-rbl.example.com` or `2.0.0.127.major-rbls.example.com`):
 
-1. **Parse IP**: Extract IP address from query (e.g., `127.0.0.2`)
-2. **Concurrent Lookups**: Query all 40+ RBL servers simultaneously using cached lookups
-3. **250ms Timeout**: Hard timeout ensures response within 250ms
-4. **Collect Results**: Gather all completed responses (cache hits return instantly)
-5. **Build Response**:
+1. **Match Zone**: Identify which multi-RBL zone the query is for
+2. **Parse IP**: Extract IP address from query (e.g., `127.0.0.2`)
+3. **Filter RBLs**: Select RBL servers based on zone configuration:
+   - `"rbls": "*"` = all 40+ RBL servers
+   - `"rbls": [...]` = specific RBL servers listed in the zone
+4. **Concurrent Lookups**: Query selected RBL servers simultaneously using cached lookups
+5. **250ms Timeout**: Hard timeout ensures response within 250ms
+6. **Collect Results**: Gather all completed responses (cache hits return instantly)
+7. **Build Response**:
    - **A Record**: Returns `127.0.0.2` if listed on any RBL, or NXDOMAIN if clean
    - **TXT Records**:
-     - Summary: `"Listed on 3/45 RBLs (45/50 checked in 180ms)"`
+     - Summary: `"Listed on 3/9 RBLs (9/9 checked in 180ms)"` (example for major-rbls zone)
      - Details: `"Spamhaus ZEN: LISTED"`, `"Barracuda: LISTED"`, etc.
-6. **Cache Everything**: All individual RBL results are cached for future queries
+8. **Cache Everything**: All individual RBL results are cached for future queries
+
+**Multiple Zone Example:**
+- `multi-rbl.example.com` checks all 40+ RBLs (comprehensive but slower)
+- `major-rbls.example.com` checks only 9 major RBLs (faster, most important lists)
+- `spamhaus.example.com` checks only 4 Spamhaus lists (fastest, single provider)
 
 ### Cache Database Schema
 
@@ -1611,6 +1686,8 @@ Edit the `$test_queries` array in the script to customize test cases.
 
 ## Configuration
 
+### RBL Server Configuration
+
 RBL servers are configured in `etc/rbl-servers.json`. Each entry contains:
 
 ```json
@@ -1622,6 +1699,37 @@ RBL servers are configured in `etc/rbl-servers.json`. Each entry contains:
 ```
 
 You can add or remove RBL servers by editing this file.
+
+### Multi-RBL Zone Configuration
+
+Multi-RBL zones are optionally configured in `etc/multi-rbl-zones.json`. Each zone defines a domain and the set of RBLs to check:
+
+```json
+{
+  "zones": [
+    {
+      "domain": "multi-rbl.example.com",
+      "description": "All RBLs (comprehensive check)",
+      "rbls": "*"
+    },
+    {
+      "domain": "major-rbls.example.com",
+      "description": "Major RBLs only",
+      "rbls": ["zen.spamhaus.org", "cbl.abuseat.org", "bl.spamcop.net"]
+    }
+  ]
+}
+```
+
+**Zone Configuration Options:**
+- `domain`: The DNS domain for this zone (e.g., `major-rbls.example.com`)
+- `description`: Human-readable description of the zone's purpose
+- `rbls`: Either `"*"` for all RBL servers, or an array of specific RBL hosts
+
+**Notes:**
+- If this file doesn't exist, the server uses the single domain from `DNS_MULTI_RBL_DOMAIN` in `.env`
+- The RBL hosts in the `rbls` array must match the `host` values in `etc/rbl-servers.json`
+- Multiple zones allow you to create fast, targeted checks (e.g., Spamhaus-only) alongside comprehensive checks
 
 ## Development
 
