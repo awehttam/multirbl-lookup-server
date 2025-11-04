@@ -36,5 +36,7 @@ yarn-error.log*
 public_html/header.html
 public_html/footer.html
 
-# DNS access control configuration (example is tracked)
+# Configuration files (examples are tracked)
 etc/dns-access-control.json
+etc/rbl-servers.json
+etc/multi-rbl-zones.json

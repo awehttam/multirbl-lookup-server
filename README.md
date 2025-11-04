@@ -84,9 +84,9 @@ multirbl-lookup/
 │   ├── styles.css                 # Styling
 │   └── app.js                     # Frontend JavaScript
 ├── etc/
-│   ├── rbl-servers.json                  # 40+ RBL server configurations
-│   ├── multi-rbl-zones.json              # Multi-RBL zone configurations (optional)
-│   └── dns-access-control.example.json   # DNS access control example
+│   ├── rbl-servers.json.example          # 40+ RBL server configurations (example)
+│   ├── multi-rbl-zones.json.example      # Multi-RBL zone configurations (example)
+│   └── dns-access-control.json.example   # DNS access control (example)
 ├── logs/
 │   └── requests.log               # Request logs (auto-created)
 ├── rbl-cli.php                    # PHP CLI with custom RBL commands
@@ -141,7 +141,22 @@ GRANT ALL PRIVILEGES ON DATABASE multirbl TO multirbl;
 npm install
 ```
 
-4. **Configure environment variables:**
+4. **Copy configuration files:**
+
+```bash
+# Copy RBL servers configuration
+cp etc/rbl-servers.json.example etc/rbl-servers.json
+
+# Copy multi-RBL zones configuration (optional)
+cp etc/multi-rbl-zones.json.example etc/multi-rbl-zones.json
+
+# Copy DNS access control configuration (optional)
+cp etc/dns-access-control.json.example etc/dns-access-control.json
+```
+
+**Note:** These configuration files are excluded from git so you can customize them for your environment.
+
+5. **Configure environment variables:**
 
 ```bash
 # Copy the example environment file
@@ -160,7 +175,7 @@ DB_USER=multirbl
 DB_PASSWORD=changeme
 ```
 
-5. **Run database migration:**
+6. **Run database migration:**
 
 ```bash
 node database/migrate.js
@@ -173,7 +188,7 @@ You should see:
 ✓ Migration completed successfully
 ```
 
-6. **Start the API server:**
+7. **Start the API server:**
 ```bash
 npm start
 ```
@@ -1745,7 +1760,7 @@ The DNS server supports optional IP-based access control to restrict which netwo
 
 1. Copy the example configuration:
 ```bash
-cp etc/dns-access-control.example.json etc/dns-access-control.json
+cp etc/dns-access-control.json.example etc/dns-access-control.json
 ```
 
 2. Edit `etc/dns-access-control.json`:
