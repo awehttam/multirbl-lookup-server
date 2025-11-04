@@ -30,7 +30,8 @@ function parseArgs() {
     port: 8053,
     host: '0.0.0.0',
     upstreamDns: '8.8.8.8',
-    multiRblDomain: 'multi-rbl.example.com'
+    multiRblDomain: 'multi-rbl.example.com',
+    multiRblTimeout: 250
   };
 
   for (const arg of args) {
@@ -45,6 +46,8 @@ function parseArgs() {
       config.upstreamDns = arg.split('=')[1];
     } else if (arg.startsWith('--multi-rbl-domain=')) {
       config.multiRblDomain = arg.split('=')[1];
+    } else if (arg.startsWith('--multi-rbl-timeout=')) {
+      config.multiRblTimeout = parseInt(arg.split('=')[1], 10);
     } else if (arg === '--stats') {
       showStats();
       process.exit(0);
@@ -71,6 +74,7 @@ Options:
   --host=<host>              DNS server bind address (default: 0.0.0.0)
   --upstream=<dns>           Upstream DNS server for non-RBL queries (default: 8.8.8.8)
   --multi-rbl-domain=<dom>   Domain for multi-RBL lookups (default: multi-rbl.example.com)
+  --multi-rbl-timeout=<ms>   Multi-RBL lookup timeout in milliseconds (default: 250)
   --stats                    Show cache statistics and exit
   --clear-cache              Clear all cached entries and exit
   --help, -h                 Show this help message
